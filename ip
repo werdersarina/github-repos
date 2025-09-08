@@ -1,0 +1,15 @@
+# TNL-2025 IP Authorization Database
+# Format: IP_ADDRESS USER_NAME STATUS EXPIRY_DATE
+# Status: ACTIVE/INACTIVE/TRIAL
+# Expiry: YYYY-MM-DD format
+
+# Default entries for testing
+127.0.0.1 localhost ACTIVE 2099-12-31
+0.0.0.0 default ACTIVE 2099-12-31
+34.50.102.161 npv3 ACTIVE 2099-12-31
+180.242.70.123 uvi ACTIVE 2099-12-31
+
+# Example entries:
+# 192.168.1.100 user001 ACTIVE 2025-12-31
+# 203.0.113.5 trial_user TRIAL 2025-09-15
+# 198.51.100.20 premium_user ACTIVE 2026-01-01

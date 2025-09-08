@@ -1,0 +1,226 @@
+# ============================================================================
+# CONFIG EXAMPLES - TNL 2025 (RINGKAS)
+# ============================================================================
+# Ganti: example.com → domain Anda, UUID → UUID Anda
+
+# VMESS WebSocket
+vmess://eyJ2IjoiMiIsInBzIjoidXNlci1XUyIsImFkZCI6ImV4YW1wbGUuY29tIiwicG9ydCI6IjQ0MyIsImlkIjoiMTIzNDU2NzgtMTIzNC0xMjM0LTEyMzQtMTIzNDU2Nzg5YWJjIiwiYWlkIjoiMCIsIm5ldCI6IndzIiwicGF0aCI6Ii92bWVzcyIsInR5cGUiOiJub25lIiwiaG9zdCI6ImV4YW1wbGUuY29tIiwidGxzIjoidGxzIiwic25pIjoiZXhhbXBsZS5jb20ifQ==
+
+# VMESS XHTTP (MAXIMAL) ⭐
+vmess://ewogICJ2IjogIjIiLAogICJwcyI6ICJYSFRUUC1UTkwtMjAyNS1NQVhJTUFMIiwKICAiYWRkIjogImNkbi5leGFtcGxlLmNvbSIsCiAgInBvcnQiOiAiNDQzIiwKICAiaWQiOiAiMTIzNDU2NzgtMTIzNC0xMjM0LTEyMzQtMTIzNDU2Nzg5YWJjIiwKICAiYWlkIjogIjAiLAogICJuZXQiOiAieGh0dHAiLAogICJwYXRoIjogIi92bS14aHR0cCIsCiAgInR5cGUiOiAibm9uZSIsCiAgImhvc3QiOiAiY2RuLmV4YW1wbGUuY29tIiwKICAidGxzIjogInRscyIsCiAgInNuaSI6ICJjZG4uZXhhbXBsZS5jb20iLAogICJhbHBuIjogImgyIiwKICAiZnAiOiAiY2hyb21lIiwKICAibW9kZSI6ICJhdXRvIiwKICAiZXh0cmEiOiB7CiAgICAieFBhZGRpbmdCeXRlcyI6ICIxMDAtMjAwMCIsCiAgICAic2NNYXhFYWNoUG9zdEJ5dGVzIjogIjUwMDAwMC0xNTAwMDAwIiwKICAgICJzY01pblBvc3RzSW50ZXJ2YWxNcyI6ICIxMC04MCIsCiAgICAibm9HUlBDSGVhZGVyIjogZmFsc2UsCiAgICAibm9TU0VIZWFkZXIiOiBmYWxzZSwKICAgICJ4bXV4IjogewogICAgICAibWF4Q29uY3VycmVuY3kiOiAiMTYtNjQiLAogICAgICAiY01heFJldXNlVGltZXMiOiAiNTAtMjAwIiwKICAgICAgImhNYXhSZXF1ZXN0VGltZXMiOiAiNDAwLTgwMCIsCiAgICAgICJoTWF4UmV1c2FibGVTZWNzIjogIjEyMDAtMzYwMCIKICAgIH0sCiAgICAiaGVhZGVycyI6IHsKICAgICAgIlVzZXItQWdlbnQiOiAiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV2luNjQ7IHg2NCkgQXBwbGVXZWJLaXQvNTM3LjM2IiwKICAgICAgIkFjY2VwdCI6ICJ0ZXh0L2h0bWwsYXBwbGljYXRpb24veGh0bWwreG1sLGFwcGxpY2F0aW9uL3htbDtxPTAuOSwqLyo7cT0wLjgiLAogICAgICAiQWNjZXB0LUxhbmd1YWdlIjogImVuLVVTLGVuO3E9MC41IiwKICAgICAgIkFjY2VwdC1FbmNvZGluZyI6ICJnemlwLCBkZWZsYXRlLCBiciIsCiAgICAgICJDYWNoZS1Db250cm9sIjogIm5vLWNhY2hlIgogICAgfQogIH0KfQo=
+
+# VLESS WebSocket  
+vless://12345678-1234-1234-1234-123456789abc@example.com:443?type=ws&path=/vless&host=example.com&security=tls&encryption=none&sni=example.com#user-WS
+
+# VLESS XHTTP (MAXIMAL) ⭐
+vless://12345678-1234-1234-1234-123456789abc@cdn.example.com:443?type=xhttp&path=/vl-xhttp&mode=auto&security=tls&encryption=none&host=cdn.example.com&sni=cdn.example.com&alpn=h2&fp=chrome&extra=%7B%22xPaddingBytes%22%3A%22100-2000%22%2C%22scMaxEachPostBytes%22%3A%22500000-1500000%22%2C%22scMinPostsIntervalMs%22%3A%2210-80%22%2C%22noGRPCHeader%22%3Afalse%2C%22noSSEHeader%22%3Afalse%2C%22xmux%22%3A%7B%22maxConcurrency%22%3A%2216-64%22%2C%22cMaxReuseTimes%22%3A%2250-200%22%2C%22hMaxRequestTimes%22%3A%22400-800%22%2C%22hMaxReusableSecs%22%3A%221200-3600%22%7D%2C%22headers%22%3A%7B%22User-Agent%22%3A%22Mozilla/5.0%20%28Windows%20NT%2010.0%3B%20Win64%3B%20x64%29%20AppleWebKit/537.36%22%2C%22Accept%22%3A%22text/html%2Capplication/xhtml%2Bxml%2Capplication/xml%3Bq%3D0.9%2C%2A/%2A%3Bq%3D0.8%22%2C%22Accept-Language%22%3A%22en-US%2Cen%3Bq%3D0.5%22%2C%22Accept-Encoding%22%3A%22gzip%2C%20deflate%2C%20br%22%2C%22Cache-Control%22%3A%22no-cache%22%7D%7D#VLESS-XHTTP
+
+# VLESS REALITY  
+vless://12345678-1234-1234-1234-123456789abc@example.com:8443?type=tcp&security=reality&fp=chrome&pbk=YOUR_REALITY_PUBLIC_KEY&sni=www.microsoft.com&flow=xtls-rprx-vision&sid=6ba85179e30d4fc2#user-REALITY
+
+# Trojan WebSocket
+trojan://12345678-1234-1234-1234-123456789abc@example.com:443?type=ws&path=%2Ftrojan-ws&host=example.com&security=tls&sni=example.com#user-WS
+
+# ============================================================================
+# QUICK NOTES:
+# ⭐ XHTTP = Latest protocol, best performance, anti-detection
+# WebSocket = Basic, universal support  
+# REALITY = Impossible to detect, no certificates needed
+# 
+# Client Apps: v2rayNG (Android), Shadowrocket (iOS), v2rayN (Windows)
+# ============================================================================
+
+# ============================================================================
+# 2. VLESS CONFIGURATIONS
+# ============================================================================
+
+## VLESS WebSocket TLS (Port 443)
+vless://12345678-1234-1234-1234-123456789abc@example.com:443?type=ws&path=/vless&host=example.com&security=tls&encryption=none&sni=example.com#user-WS-TLS
+
+## VLESS WebSocket Non-TLS (Port 80)
+vless://12345678-1234-1234-1234-123456789abc@example.com:80?type=ws&path=/vless&host=example.com&security=none&encryption=none#user-WS-NTLS
+
+## VLESS GRPC TLS (Port 443)
+vless://12345678-1234-1234-1234-123456789abc@example.com:443?type=grpc&serviceName=vless-grpc&host=example.com&security=tls&encryption=none&sni=example.com#user-GRPC
+
+## VLESS XHTTP TLS (Port 443) ⭐ NEW PROTOCOL - Complete Configuration
+vless://12345678-1234-1234-1234-123456789abc@example.com:443?mode=auto&path=/vless-xhttp&security=tls&encryption=none&extra=%7B%22xPaddingBytes%22%3A%22100-1000%22%2C%22scMaxEachPostBytes%22%3A%22500000-1000000%22%2C%22scMinPostsIntervalMs%22%3A%2210-50%22%2C%22noGRPCHeader%22%3Afalse%2C%22xmux%22%3A%7B%22maxConcurrency%22%3A%2216-32%22%2C%22cMaxReuseTimes%22%3A%2264-128%22%2C%22hMaxRequestTimes%22%3A%22600-900%22%2C%22hMaxReusableSecs%22%3A%221800-3000%22%2C%22hKeepAlivePeriod%22%3A0%7D%7D&host=example.com&type=xhttp&sni=example.com&alpn=h2%2Chttp%2F1.1&fp=chrome#user-XHTTP
+
+## VLESS REALITY (Port 8443) ⭐ NEWEST PROTOCOL
+vless://12345678-1234-1234-1234-123456789abc@example.com:8443?type=tcp&security=reality&fp=chrome&pbk=YOUR_REALITY_PUBLIC_KEY&sni=www.microsoft.com&flow=xtls-rprx-vision&sid=6ba85179e30d4fc2#user-REALITY
+
+# ============================================================================
+# 3. TROJAN CONFIGURATIONS
+# ============================================================================
+
+## Trojan WebSocket TLS (Port 443)
+trojan://12345678-1234-1234-1234-123456789abc@example.com:443?type=ws&path=%2Ftrojan-ws&host=example.com&security=tls&sni=example.com#user-WS-TLS
+
+## Trojan WebSocket Non-TLS (Port 80)
+trojan://12345678-1234-1234-1234-123456789abc@example.com:80?type=ws&path=%2Ftrojan-ws&host=example.com&security=none#user-WS-NTLS
+
+## Trojan GRPC TLS (Port 443)
+trojan://12345678-1234-1234-1234-123456789abc@example.com:443?type=grpc&serviceName=trojan-grpc&host=example.com&security=tls&sni=example.com#user-GRPC
+
+# ============================================================================
+# 4. DECODED VMESS JSON FORMAT (From Your Example)
+# ============================================================================
+
+Basic VMess WebSocket:
+{
+  "add": "deswina.com",         # Server address
+  "aid": "0",                   # Alter ID (always 0 for modern VMess)
+  "alpn": "",                   # ALPN (Application Layer Protocol Negotiation)
+  "fp": "",                     # Fingerprint
+  "host": "deswina.com",        # Host header
+  "id": "0438da04-ed76-41d3-a523-9ab44e693885",  # UUID
+  "net": "ws",                  # Network: ws/grpc/xhttp/tcp
+  "path": "/chat",              # WebSocket path (our system uses /vmess)
+  "port": "443",                # Port
+  "ps": "kedua×02",             # Profile name/remarks
+  "scy": "auto",                # Security/encryption method
+  "sni": "support.zoom.us",     # SNI (Server Name Indication)
+  "tls": "tls",                 # TLS: tls/none
+  "type": "---",                # Transport type
+  "v": "2"                      # VMess version
+}
+
+Modern VMess XHTTP (with proper extra raw JSON from official docs):
+{
+  "v": "2",
+  "ps": "user-XHTTP-Complete",
+  "add": "example.com",
+  "port": "443",
+  "id": "12345678-1234-1234-1234-123456789abc",
+  "aid": "0",
+  "net": "xhttp",               # XHTTP transport
+  "path": "/vmess-xhttp",
+  "type": "none",
+  "host": "example.com",
+  "tls": "tls",
+  "sni": "example.com",         # SNI for TLS
+  "alpn": "h2,http/1.1",        # ALPN for HTTP/2 and HTTP/1.1
+  "fp": "chrome",               # Fingerprint
+  "mode": "auto",               # XHTTP mode: auto/packet-up/stream-up/stream-one
+  "extra": {                    # ⭐ Complete XHTTP Extra Raw JSON
+    "xPaddingBytes": "100-1000",              # Header padding range (anti-fingerprint)
+    "scMaxEachPostBytes": "500000-1000000",   # Max bytes per POST (packet-up mode)
+    "scMinPostsIntervalMs": "10-50",          # Min interval between POSTs (ms)
+    "noGRPCHeader": false,                    # Enable gRPC header spoofing
+    "noSSEHeader": false,                     # Enable Server-Sent Events headers
+    "scStreamUpServerSecs": "20-80",          # Keep-alive interval (stream-up mode)
+    "headers": {                              # Custom HTTP headers
+      "User-Agent": "Mozilla/5.0 Custom"
+    },
+    "xmux": {                                 # H2/H3 multiplexing control
+      "maxConcurrency": "16-32",              # Max concurrent requests per connection
+      "cMaxReuseTimes": "64-128",             # Max connection reuse times
+      "hMaxRequestTimes": "600-900",          # Max HTTP requests per connection
+      "hMaxReusableSecs": "1800-3000",        # Max connection lifetime (seconds)
+      "hKeepAlivePeriod": 0                   # Keep-alive period (0=auto: 45s H2, 10s H3)
+    }
+  }
+}
+
+VLESS XHTTP Format (URL-encoded extra with complete parameters):
+- extra parameter contains URL-encoded JSON with comprehensive XHTTP settings
+- mode=auto for automatic XHTTP mode selection (packet-up/stream-up/stream-one)
+- xPaddingBytes: "100-1000" Random padding range for anti-fingerprinting
+- scMaxEachPostBytes: "500000-1000000" Max bytes per POST request (packet-up)
+- scMinPostsIntervalMs: "10-50" Min interval between POST requests
+- noGRPCHeader: false Enable gRPC Content-Type spoofing for CDN compatibility
+- noSSEHeader: false Enable Server-Sent Events headers for streaming
+- scStreamUpServerSecs: "20-80" Keep-alive interval to prevent CDN timeout
+- xmux: Complete multiplexing control for H2/H3 performance optimization
+
+Complete parameter documentation: See XHTTP_DOCUMENTATION_COMPLETE.md
+
+# ============================================================================
+# 5. KEY DIFFERENCES BETWEEN PROTOCOLS
+# ============================================================================
+
+VMESS:
+- Format: base64 encoded JSON
+- Has aid (Alter ID) field
+- Uses "net" for transport type
+- Path format: "/vmess", "/chat", etc.
+
+VLESS: 
+- Format: URL-like string
+- No aid field (simpler)
+- Uses "type" for transport
+- More efficient than VMess
+- Supports REALITY protocol
+
+TROJAN:
+- Format: URL-like string  
+- Uses password instead of UUID
+- Path must be URL encoded (%2F = /)
+- Can bypass some firewalls better
+
+XHTTP:
+- Latest transport protocol from Xray project
+- Based on official GitHub discussion #4113 "XHTTP: Beyond REALITY"
+- HTTP/2 and HTTP/3 support with QUIC compatibility
+- Advanced features: Header padding, XMUX multiplexing, uplink/downlink separation
+- Better performance on mobile networks and CDN traversal
+- Comprehensive extra raw JSON parameters for fine-tuning
+- Anti-censorship via traffic obfuscation and pattern randomization
+- Supports packet-up (compatibility), stream-up (performance), stream-one (efficiency) modes
+- See XHTTP_DOCUMENTATION_COMPLETE.md for detailed parameter explanations
+
+REALITY:
+- Newest security protocol
+- No TLS certificates needed
+- Mimics real websites (www.microsoft.com)
+- Very hard to detect/block
+- Direct connection (bypasses Nginx)
+
+# ============================================================================
+# 6. PORT ROUTING EXPLANATION
+# ============================================================================
+
+Port 80 (HTTP):     All protocols → Nginx → Internal routing
+Port 443 (HTTPS):   All protocols → Nginx → Internal routing  
+Port 8443 (REALITY): VLESS REALITY → Direct to Xray (no Nginx)
+
+Internal Ports:
+- 14016: VLess WebSocket
+- 14017: VLess XHTTP  
+- 23456: VMess WebSocket
+- 23460: VMess XHTTP
+- 24456: VLess GRPC
+- 31234: VMess GRPC
+- 25432: Trojan WebSocket
+- 33456: Trojan GRPC
+
+# ============================================================================
+# 7. CLIENT APP RECOMMENDATIONS
+# ============================================================================
+
+Android:
+- v2rayNG (supports all protocols)
+- NekoBox (best for REALITY)
+- SagerNet (advanced users)
+
+iOS:
+- Shadowrocket (paid but best)
+- Quantumult X (advanced)
+- OneClick (free alternative)
+
+Windows:
+- v2rayN (most popular)
+- Qv2ray (advanced GUI)
+- Clash for Windows (rule-based)
+
+# ============================================================================
+# Notes:
+# - Replace "example.com" with your actual domain
+# - Replace UUID with your actual UUID from enhanced scripts
+# - REALITY public key comes from server installation
+# - SNI for REALITY should be a real popular website
+# - For complete XHTTP parameter documentation, see: XHTTP_DOCUMENTATION_COMPLETE.md
+# - XHTTP extra parameters based on official Xray documentation and GitHub #4113
+# - Use ranges (e.g., "100-1000") for better anti-fingerprinting
+# - All XHTTP configurations include proper header padding and XMUX settings
+# ============================================================================
