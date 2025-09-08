@@ -35,18 +35,18 @@ execute_with_retry() {
     log_and_show "🔄 $description"
     
     while [ $attempt -le $max_attempts ]; do
-        log_and_show "⚙️ Mencoba $description (percobaan $attempt/$max_attempts)"
+        log_and_show "📝 Attempt $attempt/$max_attempts: $description"
         
-        if eval "$cmd"; then
-            log_and_show "✅ $description berhasil pada percobaan $attempt"
+        if eval "$cmd" >/dev/null 2>&1; then
+            log_and_show "✅ $description berhasil pada percobaan ke-$attempt"
             return 0
         else
-            log_and_show "❌ $description gagal pada percobaan $attempt"
+            log_and_show "⚠️ $description gagal pada percobaan ke-$attempt"
             if [ $attempt -lt $max_attempts ]; then
-                log_and_show "⏱️ Menunggu $delay detik sebelum mencoba kembali..."
+                log_and_show "⏳ Menunggu ${delay} detik sebelum percobaan selanjutnya..."
                 sleep $delay
             fi
-            attempt=$((attempt+1))
+            attempt=$((attempt + 1))
         fi
     done
     
@@ -395,7 +395,7 @@ if execute_with_retry "$download_cmd" "Download ssh-2025.sh" 3 5; then
         
         # Start stunnel4 dengan konfigurasi minimal
         if [ -f /etc/stunnel/stunnel.conf ]; then
-            log_and_show "� Melakukan restart stunnel4..."
+            log_and_show "🔄 Melakukan restart stunnel4..."
             systemctl restart stunnel4 || {
                 log_and_show "⚠️ Gagal restart stunnel4, coba konfigurasi ulang..."
                 echo "cert = /etc/stunnel/stunnel.pem

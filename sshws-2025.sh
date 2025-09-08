@@ -21,10 +21,9 @@ log_and_show "🌐 Installing Nginx web server..."
 # Periksa dan hentikan layanan web server yang mungkin sudah berjalan
 log_and_show "🔍 Memeriksa layanan web server yang sedang berjalan..."
 for service in apache2 httpd lighttpd; do
-    if systemctl is-active --quiet $service; then
-        log_and_show "⚠️ Menemukan $service sedang berjalan, menghentikannya..."
-        systemctl stop $service
-        systemctl disable $service
+    if systemctl is-active --quiet $service 2>/dev/null; then
+        log_command "systemctl stop $service"
+        log_command "systemctl disable $service"
     fi
 done
 
@@ -45,43 +44,42 @@ log_and_show "📦 Menginstal nginx dengan metode yang reliable..."
 
 install_nginx_success=false
 
-# Metode 1: apt install langsung
-for i in {1..3}; do
-    if log_command "apt update && apt install -y nginx"; then
-        log_and_show "✅ Nginx berhasil diinstal dengan metode standar"
-        install_nginx_success=true
-        break
-    else
-        log_and_show "⚠️ Instalasi nginx gagal (percobaan $i/3), mencoba lagi..."
-        sleep 3
-    fi
-done
+# Metode 1: Update package cache dan install
+log_and_show "🔄 Mencoba instalasi nginx metode 1..."
+if log_command "apt update -qq && apt install -y nginx nginx-common nginx-core"; then
+    install_nginx_success=true
+    log_and_show "✅ Nginx berhasil diinstal dengan metode 1"
+fi
 
-# Metode 2: Jika metode 1 gagal, coba instalasi komponen terpisah
+# Metode 2: Jika metode 1 gagal, coba instalasi dengan fix broken dependencies
 if [ "$install_nginx_success" = false ]; then
     log_and_show "🔄 Mencoba metode instalasi alternatif untuk nginx..."
-    if log_command "apt install -y nginx-common nginx-core"; then
-        log_and_show "✅ Nginx berhasil diinstal dengan metode alternatif"
+    log_command "apt --fix-broken install -y"
+    if log_command "apt install -y --reinstall nginx"; then
         install_nginx_success=true
+        log_and_show "✅ Nginx berhasil diinstal dengan metode 2"
     fi
 fi
 
-# Metode 3: Jika metode 2 juga gagal, coba dengan aptitude
+# Metode 3: Jika metode 2 juga gagal, coba dengan dpkg reconfigure
 if [ "$install_nginx_success" = false ]; then
-    log_and_show "🔄 Mencoba instalasi dengan aptitude..."
-    log_command "apt install -y aptitude" || true
-    if log_command "aptitude install -y nginx"; then
-        log_and_show "✅ Nginx berhasil diinstal dengan aptitude"
+    log_and_show "🔄 Mencoba instalasi dengan dpkg reconfigure..."
+    log_command "dpkg --configure -a"
+    if log_command "apt install -y nginx"; then
         install_nginx_success=true
+        log_and_show "✅ Nginx berhasil diinstal dengan metode 3"
     fi
 fi
 
 # Verifikasi instalasi
 if command -v nginx >/dev/null 2>&1; then
+    install_nginx_success=true
     log_and_show "✅ Verifikasi: Nginx binary tersedia"
+    nginx -v 2>&1 | log_and_show
 else
     log_and_show "❌ Nginx tidak berhasil diinstal dengan semua metode yang dicoba"
     log_and_show "⚠️ WebSocket mungkin tidak berfungsi dengan baik"
+    install_nginx_success=false
 fi
 
 # Ensure nginx directory exists 

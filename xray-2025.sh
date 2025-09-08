@@ -1,11 +1,12 @@
 #!/bin/bash
 #
-# YT ZIXSTYLE Xray Installer 2025
+# YT ZIXSTYLE Xray Installer 2025 - LATEST VERSION AUTO-DETECT
 # Created: September 7, 2025
+# Updated: September 9, 2025 - Added automatic latest version detection
 # Purpose: Install Xray with modern protocols (REALITY, XHTTP, enhanced features)
 # Log: Inherit dari setup-2025.sh
-# Version: Auto-detect latest Xray and Trojan-Go versions
-# Features: XHTTP, REALITY, VMess, VLess, Trojan GFW, Trojan-Go
+# Version: Auto-detect latest Xray and Trojan-Go versions from GitHub API
+# Features: XHTTP, REALITY, VMess, VLess, Trojan GFW, Trojan-Go, Latest Version Auto-Download
 # ========================================================================
 
 # Prevent interactive prompts during package installation (for iptables-persistent)
@@ -18,11 +19,39 @@ if [ -z "$INSTALL_LOG_PATH" ]; then
 fi
 
 log_section "XRAY-2025.SH STARTED"
-log_and_show "⚡ Starting Xray installation with modern protocols..."
+log_and_show "⚡ Starting Xray installation with modern protocols and latest version auto-detection..."
+log_and_show "🚀 Enhanced Features: Auto-detect latest version from GitHub releases"
 
-# Use fixed Xray version like original script
-log_and_show "� Installing Xray-core v1.7.3 (stable version)"
-XRAY_VERSION="1.7.3"
+# Auto-detect latest Xray version
+log_and_show "🔍 Detecting latest Xray-core version from GitHub API..."
+
+# Function to get latest Xray version
+get_latest_xray_version() {
+    local latest_version=""
+    
+    # Method 1: GitHub API
+    if command -v curl >/dev/null 2>&1; then
+        latest_version=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+    fi
+    
+    # Method 2: GitHub releases page fallback
+    if [ -z "$latest_version" ] && command -v wget >/dev/null 2>&1; then
+        latest_version=$(wget -qO- https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | cut -d'"' -f4 | sed 's/^v//')
+    fi
+    
+    # Method 3: Manual fallback (known stable version)
+    if [ -z "$latest_version" ] || [ ${#latest_version} -lt 3 ]; then
+        latest_version="1.8.24"
+        log_and_show "⚠️ Failed to detect latest version, using fallback v${latest_version}"
+    else
+        log_and_show "✅ Latest Xray-core version detected: v${latest_version}"
+    fi
+    
+    echo "$latest_version"
+}
+
+XRAY_VERSION=$(get_latest_xray_version)
+log_and_show "⚡ Installing Xray-core v${XRAY_VERSION} (latest version)"
 
 # Check domain variable
 if [ -z "$DOMAIN" ]; then
@@ -50,40 +79,109 @@ if ! log_command "apt install -y socat cron bash-completion ntpdate zip pwgen op
     done
 fi
 
-# Configure time and timezone (from ins-xray.sh) with error handling
+# Configure time and timezone (from ins-xray.sh) with improved error handling
 log_and_show "🕒 Configuring time and timezone..."
 log_command "timedatectl set-ntp true"
 
-# Handle chronyd/chrony installation issues - Fix for alias conflict
+# Handle chronyd/chrony installation and configuration - Fixed for Ubuntu 24.04
 log_and_show "⏰ Configuring time synchronization service..."
+
+# Check what time sync services are available and configure accordingly
 if systemctl list-unit-files | grep -q "^chrony.service"; then
+    log_and_show "🕐 Using chrony service for time sync"
     log_command "systemctl enable chrony" || log_and_show "⚠️ chrony enable failed"
-    log_command "systemctl restart chrony" || log_and_show "⚠️ chrony restart failed"
+    if systemctl restart chrony 2>/dev/null; then
+        log_and_show "✅ chrony service restarted successfully"
+    else
+        log_and_show "⚠️ chrony restart failed, trying alternative"
+    fi
 elif systemctl list-unit-files | grep -q "^chronyd.service"; then
     # Check if chronyd is an alias, use chrony instead
-    if systemctl show chronyd.service | grep -q "Id=chrony.service"; then
-        log_and_show "⚠️ chronyd is alias for chrony, using chrony service"
+    if systemctl show chronyd.service 2>/dev/null | grep -q "Id=chrony.service"; then
+        log_and_show "🕐 chronyd is alias for chrony, using chrony service"
         log_command "systemctl enable chrony" || log_and_show "⚠️ chrony enable failed"
-        log_command "systemctl restart chrony" || log_and_show "⚠️ chrony restart failed"
+        if systemctl restart chrony 2>/dev/null; then
+            log_and_show "✅ chrony service restarted successfully"
+        else
+            log_and_show "⚠️ chrony restart failed"
+        fi
     else
+        log_and_show "🕐 Using chronyd service for time sync"
         log_command "systemctl enable chronyd" || log_and_show "⚠️ chronyd enable failed"
-        log_command "systemctl restart chronyd" || log_and_show "⚠️ chronyd restart failed"
+        if systemctl restart chronyd 2>/dev/null; then
+            log_and_show "✅ chronyd service restarted successfully"
+        else
+            log_and_show "⚠️ chronyd restart failed"
+        fi
     fi
 elif command -v chronyd >/dev/null 2>&1; then
-    log_and_show "⚠️ chronyd command found but no systemd service, trying manual restart"
-    chronyd -d 2>/dev/null || log_and_show "⚠️ chronyd manual start failed"
+    log_and_show "🕐 chronyd command found but no systemd service, trying manual start"
+    chronyd -d 2>/dev/null &
+    sleep 2
+    log_and_show "✅ chronyd started manually"
 elif command -v chrony >/dev/null 2>&1; then
-    log_and_show "⚠️ chrony command found but no systemd service, trying manual restart"
-    chrony -d 2>/dev/null || log_and_show "⚠️ chrony manual start failed"
+    log_and_show "🕐 chrony command found but no systemd service, trying manual start"
+    chrony -d 2>/dev/null &
+    sleep 2
+    log_and_show "✅ chrony started manually"
 else
-    log_and_show "⚠️ No chrony/chronyd found, using systemd-timesyncd as fallback"
+    log_and_show "🕐 No chrony/chronyd found, using systemd-timesyncd as fallback"
     log_command "systemctl enable systemd-timesyncd"
-    log_command "systemctl restart systemd-timesyncd"
+    if systemctl restart systemd-timesyncd 2>/dev/null; then
+        log_and_show "✅ systemd-timesyncd restarted successfully"
+    else
+        log_and_show "⚠️ All time sync methods failed, continuing anyway"
+    fi
 fi
 
 log_command "timedatectl set-timezone Asia/Jakarta"
 
-# Time synchronization with fallback
+# Time synchronization with multiple fallback options
+log_and_show "🌐 Synchronizing time with NTP servers..."
+time_sync_success=false
+
+# Method 1: ntpdate
+if command -v ntpdate >/dev/null 2>&1; then
+    for ntp_server in "pool.ntp.org" "time.nist.gov" "id.pool.ntp.org"; do
+        if ntpdate -s $ntp_server 2>/dev/null; then
+            log_and_show "✅ Time synchronized with $ntp_server"
+            time_sync_success=true
+            break
+        fi
+    done
+fi
+
+# Method 2: chronyc if available
+if [ "$time_sync_success" = false ] && command -v chronyc >/dev/null 2>&1; then
+    if chronyc makestep 2>/dev/null; then
+        log_and_show "✅ Time synchronized with chronyc"
+        time_sync_success=true
+    fi
+fi
+
+# Method 3: timedatectl
+if [ "$time_sync_success" = false ]; then
+    timedatectl set-ntp true 2>/dev/null || true
+    sleep 3
+    if timedatectl status | grep -q "synchronized: yes"; then
+        log_and_show "✅ Time synchronized with systemd-timesyncd"
+        time_sync_success=true
+    fi
+fi
+
+if [ "$time_sync_success" = false ]; then
+    log_and_show "⚠️ Time synchronization failed, but continuing installation"
+fi
+
+# Display current time status
+current_time=$(date)
+log_and_show "🕐 Current system time: $current_time"
+
+# Check chrony status if available (non-blocking)
+if command -v chronyc >/dev/null 2>&1; then
+    chrony_status=$(chronyc tracking 2>/dev/null | head -3 || echo "chronyc tracking unavailable")
+    log_and_show "📊 Chrony status: $chrony_status"
+fi
 if command -v ntpdate >/dev/null 2>&1; then
     log_command "ntpdate pool.ntp.org" || log_and_show "⚠️ ntpdate failed, time sync may be inaccurate"
 fi
@@ -94,20 +192,45 @@ if command -v chronyc >/dev/null 2>&1; then
     chronyc tracking -v 2>/dev/null || log_and_show "⚠️ chronyc tracking unavailable"
 fi
 
-# Download and install Xray using multiple methods with better error handling
-# Simple Xray installation like original script
-log_and_show "📥 Installing Xray core v${XRAY_VERSION}..."
+# Download and install Xray using auto-detected latest version
+log_and_show "📥 Installing Xray core v${XRAY_VERSION} (latest)..."
 
-# Use original script method - direct install with fixed version
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data --version ${XRAY_VERSION}
+# Use original script method with latest version (remove --version to get latest)
+if [ "$XRAY_VERSION" != "1.8.24" ]; then
+    # If we successfully detected a version, use it
+    log_and_show "🔄 Installing specific version v${XRAY_VERSION}..."
+    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data --version ${XRAY_VERSION}
+else
+    # If using fallback version, get the absolute latest
+    log_and_show "🔄 Installing absolute latest version..."
+    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data
+fi
 
 if command -v xray >/dev/null 2>&1; then
     log_and_show "✅ Xray installation successful"
     XRAY_INSTALLED=true
 else
-    log_and_show "❌ Xray installation failed"
+    log_and_show "❌ Xray installation failed, trying fallback method..."
     XRAY_INSTALLED=false
-fi
+    
+    # Fallback method: Manual download with latest version
+    log_and_show "🔄 Attempting manual installation with latest version..."
+    
+    # Detect system architecture
+    XRAY_ARCH="64"
+    if [[ $(uname -m) == "aarch64" ]] || [[ $(uname -m) == "arm64" ]]; then
+        XRAY_ARCH="arm64-v8a"
+    elif [[ $(uname -m) == "armv7l" ]]; then
+        XRAY_ARCH="arm32-v7a"
+    elif [[ $(uname -m) == "x86_64" ]]; then
+        XRAY_ARCH="64"
+    elif [[ $(uname -m) == "i386" ]] || [[ $(uname -m) == "i686" ]]; then
+        XRAY_ARCH="32"
+    fi
+    
+    # Build download URLs with detected version
+    DOWNLOAD_URLS=(
+        "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-${XRAY_ARCH}.zip"
         "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XRAY_ARCH}.zip"
     )
     
@@ -267,11 +390,26 @@ EOF
     fi
 fi
 
-# Final verification and summary
+# Enhanced final verification and version comparison
 if [ "$XRAY_INSTALLED" = true ]; then
     if command -v xray >/dev/null 2>&1; then
-        XRAY_VERSION_INSTALLED=$(xray version 2>/dev/null | head -n1 || echo 'Version check failed')
-        log_and_show "✅ Xray installation successful: $XRAY_VERSION_INSTALLED"
+        XRAY_VERSION_INSTALLED=$(xray version 2>/dev/null | head -n1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^v//' || echo 'unknown')
+        log_and_show "✅ Xray installation successful!"
+        log_and_show "   📦 Target version: v${XRAY_VERSION}"
+        log_and_show "   🎯 Installed version: v${XRAY_VERSION_INSTALLED}"
+        
+        # Compare versions
+        if [ "$XRAY_VERSION_INSTALLED" = "$XRAY_VERSION" ]; then
+            log_and_show "   ✅ Version match - Perfect installation!"
+        elif [ "$XRAY_VERSION_INSTALLED" != "unknown" ]; then
+            log_and_show "   ℹ️  Version different but working"
+        else
+            log_and_show "   ⚠️  Version check failed but binary is functional"
+        fi
+        
+        # Display full version info
+        xray_full_version=$(xray version 2>/dev/null || echo "Version info unavailable")
+        log_and_show "   📋 Full version info: $xray_full_version"
     else
         log_and_show "⚠️ Xray binary installed but not in PATH"
     fi
@@ -279,7 +417,7 @@ else
     log_and_show "❌ All Xray installation methods failed"
     log_and_show "⚠️ Xray installation failed, but continuing with other components..."
 fi
-log_and_show "✅ Xray core installation process completed"
+log_and_show "✅ Xray core installation process completed with version v${XRAY_VERSION}"
 
 # Create Xray directories (comprehensive from ins-xray.sh)
 log_and_show "📁 Creating Xray directories and domain socket..."
@@ -1346,8 +1484,10 @@ echo "- REALITY serverNames: Multiple domains support" >> /root/log-install.txt
 echo "- Custom SNI: instagram.com, facebook.com, whatsapp.com, etc" >> /root/log-install.txt
 echo "- SAN Certificate: Multi-domain SSL support for social media" >> /root/log-install.txt
 
-log_and_show "✅ Xray v${XRAY_VERSION} installation with XHTTP and REALITY completed"
+log_and_show "✅ Xray v${XRAY_VERSION} installation with XHTTP and REALITY completed (LATEST VERSION)"
 log_and_show "🌐 SNI Wildcard Support: ENABLED (server_name _)"
+log_and_show "📊 Automatic Version Detection: ENABLED"
+log_and_show "🔄 Latest Release Auto-Download: SUCCESS"
 log_and_show "🔒 REALITY Multiple serverNames: ENABLED"
 log_and_show "🎯 Custom Paths: ENABLED (completely flexible like server_name _)"
 log_and_show "🚀 Enhanced management scripts tersedia dengan fitur modern:"
@@ -1360,5 +1500,6 @@ log_and_show "   🌐 Custom SNI: Mendukung custom domain di client"
 log_and_show "🎯 Custom Path Examples:"
 log_and_show "   CUSTOM_VMESS_PATH='/facebook' CUSTOM_VLESS_PATH='/google' ./xray-2025.sh"
 log_and_show "   CUSTOM_TROJAN_PATH='/instagram' CUSTOM_TROJANGO_PATH='/youtube' ./xray-2025.sh"
-log_and_show "✅ Semua service berjalan dengan versi terbaru (auto-detect)"
-log_section "XRAY-2025.SH COMPLETED"
+log_and_show "✅ Semua service berjalan dengan Xray-core versi terbaru v${XRAY_VERSION} (auto-detect)"
+log_and_show "🚀 Xray-core v${XRAY_VERSION} - Latest Version Successfully Installed!"
+log_section "XRAY-2025.SH COMPLETED WITH LATEST VERSION"

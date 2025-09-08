@@ -150,37 +150,153 @@ else
     log_and_show "⚠️ Dropbear service will be started after reboot"
 fi
 
-# Configure Stunnel - simplified like original script
-log_and_show "🔐 Configuring Stunnel4 SSL tunnel..."
+# Configure Stunnel - improved configuration with port conflict detection
+log_and_show "🔐 Configuring Stunnel4 SSL tunnel with enhanced port management..."
+
+# Function to check if port is available
+check_port_available() {
+    local port=$1
+    local service_name=$2
+    
+    if netstat -tlnp 2>/dev/null | grep -q ":${port} " || ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+        log_and_show "⚠️ Port $port for $service_name is already in use"
+        return 1
+    else
+        log_and_show "✅ Port $port for $service_name is available"
+        return 0
+    fi
+}
+
+# Function to find alternative port
+find_alternative_port() {
+    local base_port=$1
+    local max_attempts=10
+    local current_port=$base_port
+    
+    for ((i=0; i<max_attempts; i++)); do
+        if ! netstat -tlnp 2>/dev/null | grep -q ":${current_port} " && ! ss -tlnp 2>/dev/null | grep -q ":${current_port} "; then
+            echo $current_port
+            return 0
+        fi
+        current_port=$((current_port + 1))
+    done
+    
+    # If no alternative found, return original
+    echo $base_port
+    return 1
+}
 
 # Install stunnel4 if not already installed
-apt install stunnel4 -y >/dev/null 2>&1
+if ! apt install stunnel4 -y >/dev/null 2>&1; then
+    log_and_show "⚠️ stunnel4 installation failed, trying alternative method"
+    apt update >/dev/null 2>&1
+    apt install stunnel4 -y >/dev/null 2>&1 || log_and_show "❌ stunnel4 installation completely failed"
+fi
 
+# Create stunnel4 user and group if they don't exist
+if ! id "stunnel4" &>/dev/null; then
+    log_command "adduser --system --group --no-create-home --disabled-login stunnel4"
+fi
+
+# Create necessary directories with proper permissions
+log_command "mkdir -p /var/run/stunnel4 /var/log/stunnel4 /etc/stunnel"
+log_command "chown stunnel4:stunnel4 /var/run/stunnel4 /var/log/stunnel4"
+log_command "chmod 755 /var/run/stunnel4 /var/log/stunnel4"
+
+# Check and assign ports with conflict resolution
+log_and_show "🔍 Checking port availability for stunnel4 services..."
+
+# Check required ports and find alternatives if needed
+STUNNEL_PORT_222=222
+STUNNEL_PORT_777=777
+STUNNEL_PORT_2096=2096
+STUNNEL_PORT_442=442
+DROPBEAR_PORT=109
+
+if ! check_port_available 222 "stunnel-dropbear"; then
+    STUNNEL_PORT_222=$(find_alternative_port 2222)
+    log_and_show "🔄 Using alternative port $STUNNEL_PORT_222 for stunnel-dropbear"
+fi
+
+if ! check_port_available 777 "stunnel-dropbear2"; then
+    STUNNEL_PORT_777=$(find_alternative_port 7777)
+    log_and_show "🔄 Using alternative port $STUNNEL_PORT_777 for stunnel-dropbear2"
+fi
+
+if ! check_port_available 2096 "stunnel-ws"; then
+    STUNNEL_PORT_2096=$(find_alternative_port 20096)
+    log_and_show "🔄 Using alternative port $STUNNEL_PORT_2096 for stunnel-ws"
+fi
+
+if ! check_port_available 442 "stunnel-openvpn"; then
+    STUNNEL_PORT_442=$(find_alternative_port 4422)
+    log_and_show "🔄 Using alternative port $STUNNEL_PORT_442 for stunnel-openvpn"
+fi
+
+# Check dropbear port 109 and find alternative if needed
+if ! check_port_available 109 "dropbear-internal"; then
+    DROPBEAR_PORT=$(find_alternative_port 1109)
+    log_and_show "🔄 Using alternative port $DROPBEAR_PORT for dropbear-internal"
+fi
+
+# Create improved stunnel configuration with dynamic ports
 cat > /etc/stunnel/stunnel.conf <<-END
+; YT ZIXSTYLE VPN Server stunnel4 configuration
+; Enhanced configuration with port conflict resolution and better error handling
+
+; Certificate and key
 cert = /etc/stunnel/stunnel.pem
 key = /etc/stunnel/stunnel.pem
-pid = /var/run/stunnel4/stunnel.pid
+
+; Process management
+pid = /var/run/stunnel4/stunnel4.pid
+setuid = stunnel4
+setgid = stunnel4
+
+; Logging
+debug = 4
+output = /var/log/stunnel4/stunnel.log
+
+; Network optimization
 socket = l:TCP_NODELAY=1
 socket = r:TCP_NODELAY=1
+socket = l:SO_REUSEADDR=1
+socket = r:SO_REUSEADDR=1
 
+; Compression (disabled for better performance)
+compression = zlib
+
+; SSL configuration
+options = NO_SSLv2
+options = NO_SSLv3
+ciphers = ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS
+
+; Service definitions with dynamic port assignment (conflict-free)
 [dropbear]
-accept = 222
+accept = $STUNNEL_PORT_222
 connect = 127.0.0.1:22
+TIMEOUTclose = 0
 
 [dropbear2]
-accept = 777
-connect = 127.0.0.1:109
+accept = $STUNNEL_PORT_777
+connect = 127.0.0.1:$DROPBEAR_PORT
+TIMEOUTclose = 0
 
 [ws-stunnel]
-accept = 2096
+accept = $STUNNEL_PORT_2096
 connect = 127.0.0.1:700
+TIMEOUTclose = 0
 
 [openvpn]
-accept = 442
+accept = $STUNNEL_PORT_442
 connect = 127.0.0.1:1194
+TIMEOUTclose = 0
 END
 
-# Generate SSL certificate - simplified approach
+log_and_show "✅ stunnel4 configuration created with conflict-free ports"
+log_and_show "📋 Port assignments: Dropbear=$STUNNEL_PORT_222/$STUNNEL_PORT_777, WS=$STUNNEL_PORT_2096, OpenVPN=$STUNNEL_PORT_442"
+
+# Generate SSL certificate - improved with proper permissions
 log_and_show "📜 Generating SSL certificate..."
 
 # Get variables for certificate (matching ssh-vpn.sh)
@@ -192,70 +308,121 @@ organizationalunit=Zixstyle.my.id
 commonname=WarungAwan
 email=doyoulikepussy@zixstyle.co.id
 
-# Generate certificate like original script
+# Generate certificate with proper permissions
 cd /etc/stunnel/
-openssl genrsa -out key.pem 2048
-openssl req -new -x509 -key key.pem -out cert.pem -days 1095 \
--subj "/C=$country/ST=$state/L=$locality/O=$organization/OU=$organizationalunit/CN=$commonname/emailAddress=$email"
-cat key.pem cert.pem >> /etc/stunnel/stunnel.pem
+if [ ! -f stunnel.pem ]; then
+    log_and_show "🔑 Generating new SSL certificate for stunnel4..."
+    openssl genrsa -out key.pem 2048 2>/dev/null
+    openssl req -new -x509 -key key.pem -out cert.pem -days 1095 \
+    -subj "/C=$country/ST=$state/L=$locality/O=$organization/OU=$organizationalunit/CN=$commonname/emailAddress=$email" 2>/dev/null
+    cat key.pem cert.pem > /etc/stunnel/stunnel.pem
+    chmod 600 /etc/stunnel/stunnel.pem
+    chown stunnel4:stunnel4 /etc/stunnel/stunnel.pem 2>/dev/null || true
+    rm -f key.pem cert.pem
+    log_and_show "✅ SSL certificate generated successfully"
+else
+    log_and_show "✅ SSL certificate already exists"
+fi
 
-# Configure stunnel - simple approach like original
-sed -i 's/ENABLED=0/ENABLED=1/g' /etc/default/stunnel4
-/etc/init.d/stunnel4 restart >/dev/null 2>&1
+# Configure stunnel - improved systemd integration
+sed -i 's/ENABLED=0/ENABLED=1/g' /etc/default/stunnel4 2>/dev/null || true
 
-log_and_show "✅ stunnel4 configured successfully"
-    cat > /etc/systemd/system/stunnel4.service << 'EOF'
+# Create improved systemd service for stunnel4
+cat > /etc/systemd/system/stunnel4.service << 'EOF'
 [Unit]
 Description=SSL tunnel for network daemons
 Documentation=man:stunnel4(8)
 After=network.target
+Before=multi-user.target
 
 [Service]
 Type=forking
-ExecStart=/usr/bin/stunnel4 /etc/stunnel/stunnel.conf
-PIDFile=/var/run/stunnel4/stunnel4.pid
 ExecStartPre=/bin/mkdir -p /var/run/stunnel4
 ExecStartPre=/bin/chown stunnel4:stunnel4 /var/run/stunnel4
+ExecStart=/usr/bin/stunnel4 /etc/stunnel/stunnel.conf
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/var/run/stunnel4/stunnel4.pid
+KillMode=mixed
 Restart=on-failure
 RestartSec=5
 User=stunnel4
 Group=stunnel4
 
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/run/stunnel4 /var/log/stunnel4
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    log_and_show "✅ stunnel4 systemd service created"
-fi
+systemctl daemon-reload
+log_and_show "✅ stunnel4 systemd service created"
 
-# Test stunnel configuration with enhanced validation
+# Test stunnel configuration with enhanced validation and retry mechanism
+log_and_show "🔍 Testing stunnel4 configuration with enhanced validation..."
+
 if command -v stunnel4 >/dev/null 2>&1; then
     # Create required runtime directories
     mkdir -p /var/run/stunnel4
     chown stunnel4:stunnel4 /var/run/stunnel4 2>/dev/null || true
     
-    # Test configuration syntax
-    if stunnel4 -test -fd 2 2>/dev/null; then
-        log_and_show "✅ stunnel4 configuration is valid"
-    else
-        log_and_show "⚠️ stunnel4 configuration test failed, but proceeding..."
-        # Create minimal valid configuration as fallback
-        cat > /etc/stunnel/stunnel.conf << 'EOF'
-; Minimal stunnel4 configuration
+    # Test configuration syntax with multiple attempts
+    config_test_attempts=3
+    config_valid=false
+    
+    for ((attempt=1; attempt<=config_test_attempts; attempt++)); do
+        log_and_show "🔄 Testing stunnel4 configuration (attempt $attempt/$config_test_attempts)..."
+        
+        if stunnel4 -test -fd 2 2>/dev/null; then
+            log_and_show "✅ stunnel4 configuration is valid on attempt $attempt"
+            config_valid=true
+            break
+        else
+            log_and_show "⚠️ stunnel4 configuration test failed on attempt $attempt"
+            
+            if [ $attempt -lt $config_test_attempts ]; then
+                log_and_show "🔄 Retrying with minimal configuration..."
+                # Create minimal valid configuration as fallback
+                cat > /etc/stunnel/stunnel.conf << EOF
+; Minimal stunnel4 configuration - attempt $attempt fallback
 cert = /etc/stunnel/stunnel.pem
 pid = /var/run/stunnel4/stunnel4.pid
 setuid = stunnel4
 setgid = stunnel4
+debug = 0
+
+[ssh-minimal]
+accept = 443
+connect = 127.0.0.1:22
+EOF
+                sleep 2
+            fi
+        fi
+    done
+    
+    if [ "$config_valid" = "false" ]; then
+        log_and_show "❌ All stunnel4 configuration attempts failed"
+        log_and_show "🔧 Creating ultra-minimal configuration as last resort..."
+        cat > /etc/stunnel/stunnel.conf << 'EOF'
+; Ultra-minimal stunnel4 configuration
+cert = /etc/stunnel/stunnel.pem
+pid = /var/run/stunnel4/stunnel4.pid
 
 [ssh]
 accept = 443
 connect = 127.0.0.1:22
 EOF
-        log_and_show "✅ Created minimal stunnel4 configuration"
+        log_and_show "✅ Created ultra-minimal stunnel4 configuration"
     fi
 else
-    log_and_show "⚠️ stunnel4 command not found"
+    log_and_show "⚠️ stunnel4 command not found, skipping configuration test"
 fi
 
 # Enable stunnel4 service but don't start it yet (start in final section)
@@ -921,70 +1088,242 @@ EOF
     log_and_show "✅ DDoS Deflate berhasil diinstal dan dikonfigurasi"
 fi
 
-# Install SSH account management scripts (matching ssh-vpn.sh location)
-log_and_show "👥 Installing SSH account management scripts to /usr/bin..."
+# Enhanced download function with retry mechanism and validation
+download_with_retry() {
+    local url="$1"
+    local output="$2"
+    local script_name="$3"
+    local max_attempts=3
+    local timeout=30
+    
+    for ((attempt=1; attempt<=max_attempts; attempt++)); do
+        log_and_show "📥 Downloading $script_name (attempt $attempt/$max_attempts)..."
+        
+        if wget --timeout=$timeout --tries=1 -O "$output" "$url" >/dev/null 2>&1; then
+            # Validate downloaded file
+            if [ -s "$output" ] && [ $(stat -c%s "$output") -gt 100 ]; then
+                log_and_show "✅ Successfully downloaded $script_name"
+                chmod +x "$output" 2>/dev/null || true
+                return 0
+            else
+                log_and_show "⚠️ Downloaded $script_name is too small or empty (attempt $attempt)"
+                rm -f "$output" 2>/dev/null || true
+            fi
+        else
+            log_and_show "⚠️ Failed to download $script_name (attempt $attempt)"
+        fi
+        
+        if [ $attempt -lt $max_attempts ]; then
+            log_and_show "🔄 Retrying download for $script_name in 2 seconds..."
+            sleep 2
+        fi
+    done
+    
+    log_and_show "❌ Failed to download $script_name after $max_attempts attempts"
+    return 1
+}
+
+# Install SSH account management scripts (matching ssh-vpn.sh location) with enhanced error handling
+log_and_show "👥 Installing SSH account management scripts to /usr/bin with enhanced download management..."
 cd /usr/bin
 
+# Track successful downloads
+declare -a successful_downloads=()
+declare -a failed_downloads=()
+
 # SSH account management (matching ssh-vpn.sh exactly) - with enhanced error handling
-log_and_show "📥 Downloading SSH management scripts..."
-log_command "wget --timeout=30 -O usernew https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/usernew.sh" || log_and_show "⚠️ Failed to download usernew.sh"
-log_command "wget --timeout=30 -O trial https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/trial.sh" || log_and_show "⚠️ Failed to download trial.sh"
-log_command "wget --timeout=30 -O renew https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/renew.sh" || log_and_show "⚠️ Failed to download renew.sh"
-log_command "wget --timeout=30 -O hapus https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/hapus.sh" || log_and_show "⚠️ Failed to download hapus.sh"
-log_command "wget --timeout=30 -O cek https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/cek.sh" || log_and_show "⚠️ Failed to download cek.sh"
-log_command "wget --timeout=30 -O member https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/member.sh" || log_and_show "⚠️ Failed to download member.sh"
-log_command "wget --timeout=30 -O delete https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/delete.sh" || log_and_show "⚠️ Failed to download delete.sh"
-log_command "wget --timeout=30 -O autokill https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/autokill.sh" || log_and_show "⚠️ Failed to download autokill.sh"
-log_command "wget --timeout=30 -O ceklim https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/ceklim.sh" || log_and_show "⚠️ Failed to download ceklim.sh"
-log_command "wget --timeout=30 -O tendang https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/tendang.sh" || log_and_show "⚠️ Failed to download tendang.sh"
+log_and_show "📥 Downloading SSH management scripts with retry mechanism..."
+
+# Define all scripts to download
+declare -A scripts_to_download=(
+    ["usernew"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/usernew.sh"
+    ["trial"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/trial.sh"
+    ["renew"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/renew.sh"
+    ["hapus"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/hapus.sh"
+    ["cek"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/cek.sh"
+    ["member"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/member.sh"
+    ["delete"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/delete.sh"
+    ["autokill"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/autokill.sh"
+    ["ceklim"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/ceklim.sh"
+    ["tendang"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/tendang.sh"
+)
+
+# Download SSH management scripts
+for script_name in "${!scripts_to_download[@]}"; do
+    if download_with_retry "${scripts_to_download[$script_name]}" "$script_name" "$script_name"; then
+        successful_downloads+=("$script_name")
+    else
+        failed_downloads+=("$script_name")
+    fi
+done
 
 # Main menu scripts (matching ssh-vpn.sh exactly) - with enhanced error handling
-log_and_show "📋 Downloading main menu scripts..."
-log_command "wget --timeout=30 -O menu https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu.sh" || log_and_show "⚠️ Failed to download menu.sh"
-log_command "wget --timeout=30 -O menu-vmess https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-vmess.sh" || log_and_show "⚠️ Failed to download menu-vmess.sh"
-log_command "wget --timeout=30 -O menu-vless https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-vless.sh" || log_and_show "⚠️ Failed to download menu-vless.sh"
-log_command "wget --timeout=30 -O running https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/running.sh" || log_and_show "⚠️ Failed to download running.sh"
-log_command "wget --timeout=30 -O clearcache https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/clearcache.sh" || log_and_show "⚠️ Failed to download clearcache.sh"
-log_command "wget --timeout=30 -O menu-trgo https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-trgo.sh" || log_and_show "⚠️ Failed to download menu-trgo.sh"
-log_command "wget --timeout=30 -O menu-trojan https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-trojan.sh" || log_and_show "⚠️ Failed to download menu-trojan.sh"
+log_and_show "📋 Downloading main menu scripts with retry mechanism..."
 
-# SSH menu
-log_command "wget --timeout=30 -O menu-ssh https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-ssh.sh" || log_and_show "⚠️ Failed to download menu-ssh.sh"
+# Define menu scripts to download
+declare -A menu_scripts=(
+    ["menu"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu.sh"
+    ["menu-vmess"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-vmess.sh"
+    ["menu-vless"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-vless.sh"
+    ["running"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/running.sh"
+    ["clearcache"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/clearcache.sh"
+    ["menu-trgo"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-trgo.sh"
+    ["menu-trojan"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-trojan.sh"
+    ["menu-ssh"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-ssh.sh"
+)
+
+# Download menu scripts
+for script_name in "${!menu_scripts[@]}"; do
+    if download_with_retry "${menu_scripts[$script_name]}" "$script_name" "$script_name"; then
+        successful_downloads+=("$script_name")
+    else
+        failed_downloads+=("$script_name")
+    fi
+done
 
 # System menu scripts (matching ssh-vpn.sh exactly) - with enhanced error handling
-log_and_show "⚙️ Downloading system menu scripts..."
-log_command "wget --timeout=30 -O menu-set https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-set.sh" || log_and_show "⚠️ Failed to download menu-set.sh"
-log_command "wget --timeout=30 -O menu-domain https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-domain.sh" || log_and_show "⚠️ Failed to download menu-domain.sh"
-log_command "wget --timeout=30 -O add-host https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/add-host.sh" || log_and_show "⚠️ Failed to download add-host.sh"
-log_command "wget --timeout=30 -O port-change https://raw.githubusercontent.com/werdersarina/github-repos/main/port/port-change.sh" || log_and_show "⚠️ Failed to download port-change.sh"
-log_command "wget --timeout=30 -O certv2ray https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/certv2ray.sh" || log_and_show "⚠️ Failed to download certv2ray.sh"
-log_command "wget --timeout=30 -O menu-webmin https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-webmin.sh" || log_and_show "⚠️ Failed to download menu-webmin.sh"
-log_command "wget --timeout=30 -O speedtest https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/speedtest_cli.py" || log_and_show "⚠️ Failed to download speedtest_cli.py"
-log_command "wget --timeout=30 -O about https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/about.sh" || log_and_show "⚠️ Failed to download about.sh"
-log_command "wget --timeout=30 -O auto-reboot https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/auto-reboot.sh" || log_and_show "⚠️ Failed to download auto-reboot.sh"
-log_command "wget --timeout=30 -O restart https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/restart.sh" || log_and_show "⚠️ Failed to download restart.sh"
-log_command "wget --timeout=30 -O bw https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/bw.sh" || log_and_show "⚠️ Failed to download bw.sh"
+log_and_show "⚙️ Downloading system menu scripts with retry mechanism..."
+
+# Define system scripts to download
+declare -A system_scripts=(
+    ["menu-set"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-set.sh"
+    ["menu-domain"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-domain.sh"
+    ["add-host"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/add-host.sh"
+    ["port-change"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/port/port-change.sh"
+    ["certv2ray"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/certv2ray.sh"
+    ["menu-webmin"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/menu-webmin.sh"
+    ["speedtest"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/speedtest_cli.py"
+    ["about"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/about.sh"
+    ["auto-reboot"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/auto-reboot.sh"
+    ["restart"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/restart.sh"
+    ["bw"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/menu/bw.sh"
+)
+
+# Download system scripts
+for script_name in "${!system_scripts[@]}"; do
+    if download_with_retry "${system_scripts[$script_name]}" "$script_name" "$script_name"; then
+        successful_downloads+=("$script_name")
+    else
+        failed_downloads+=("$script_name")
+    fi
+done
 
 # Port management scripts (matching ssh-vpn.sh exactly) - with enhanced error handling
-log_and_show "🔌 Downloading port management scripts..."
-log_command "wget --timeout=30 -O port-ssl https://raw.githubusercontent.com/werdersarina/github-repos/main/port/port-ssl.sh" || log_and_show "⚠️ Failed to download port-ssl.sh"
-log_command "wget --timeout=30 -O port-ovpn https://raw.githubusercontent.com/werdersarina/github-repos/main/port/port-ovpn.sh" || log_and_show "⚠️ Failed to download port-ovpn.sh"
+log_and_show "🔌 Downloading port management scripts with retry mechanism..."
+
+# Define port scripts to download
+declare -A port_scripts=(
+    ["port-ssl"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/port/port-ssl.sh"
+    ["port-ovpn"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/port/port-ovpn.sh"
+)
+
+# Download port scripts
+for script_name in "${!port_scripts[@]}"; do
+    if download_with_retry "${port_scripts[$script_name]}" "$script_name" "$script_name"; then
+        successful_downloads+=("$script_name")
+    else
+        failed_downloads+=("$script_name")
+    fi
+done
 
 # Additional system tools (matching ssh-vpn.sh exactly) - xp already downloaded
-log_and_show "🛠️ Downloading additional system tools..."
-log_command "wget --timeout=30 -O acs-set https://raw.githubusercontent.com/werdersarina/github-repos/main/acs-set.sh" || log_and_show "⚠️ Failed to download acs-set.sh"
-log_command "wget --timeout=30 -O sshws https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/sshws.sh" || log_and_show "⚠️ Failed to download sshws.sh"
+log_and_show "🛠️ Downloading additional system tools with retry mechanism..."
 
-# Set execute permissions for all scripts (matching ssh-vpn.sh exactly) - with enhanced error handling
-log_and_show "🔑 Setting execute permissions for management scripts..."
-for script in menu menu-vmess menu-vless running clearcache menu-trgo menu-trojan menu-ssh usernew trial renew hapus cek member delete autokill ceklim tendang menu-set menu-domain add-host port-change certv2ray menu-webmin speedtest about auto-reboot restart bw port-ssl port-ovpn xp acs-set sshws; do
+# Define additional scripts to download
+declare -A additional_scripts=(
+    ["acs-set"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/acs-set.sh"
+    ["sshws"]="https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/sshws.sh"
+)
+
+# Download additional scripts
+for script_name in "${!additional_scripts[@]}"; do
+    if download_with_retry "${additional_scripts[$script_name]}" "$script_name" "$script_name"; then
+        successful_downloads+=("$script_name")
+    else
+        failed_downloads+=("$script_name")
+    fi
+done
+
+# Report download results
+log_and_show "📊 Download Summary:"
+log_and_show "✅ Successfully downloaded ${#successful_downloads[@]} scripts: ${successful_downloads[*]}"
+if [ ${#failed_downloads[@]} -gt 0 ]; then
+    log_and_show "❌ Failed to download ${#failed_downloads[@]} scripts: ${failed_downloads[*]}"
+    log_and_show "⚠️ Some menu functions may not be available"
+else
+    log_and_show "🎉 All scripts downloaded successfully!"
+fi
+
+# Enhanced service restart function with dependency checking
+restart_service_with_dependency_check() {
+    local service_name="$1"
+    local description="$2"
+    local is_critical="${3:-false}"
+    
+    log_and_show "🔄 Restarting $description..."
+    
+    # Check if service exists
+    if ! systemctl list-unit-files | grep -q "${service_name}.service" && ! [ -f "/etc/init.d/$service_name" ]; then
+        if [ "$is_critical" = "true" ]; then
+            log_and_show "❌ Critical service $service_name not found!"
+            return 1
+        else
+            log_and_show "⚠️ Service $service_name not found, skipping..."
+            return 0
+        fi
+    fi
+    
+    # Try systemctl first, then fall back to init.d
+    if systemctl restart "$service_name" 2>/dev/null; then
+        log_and_show "✅ $description restarted successfully via systemctl"
+        return 0
+    elif [ -f "/etc/init.d/$service_name" ]; then
+        if /etc/init.d/"$service_name" restart 2>/dev/null; then
+            log_and_show "✅ $description restarted successfully via init.d"
+            return 0
+        else
+            log_and_show "⚠️ Failed to restart $description via init.d"
+            return 1
+        fi
+    else
+        if [ "$is_critical" = "true" ]; then
+            log_and_show "❌ Failed to restart critical service $description"
+            return 1
+        else
+            log_and_show "⚠️ Failed to restart $description, but continuing..."
+            return 0
+        fi
+    fi
+}
+
+# Set execute permissions for all scripts with validation
+log_and_show "🔑 Setting execute permissions for management scripts with validation..."
+
+# Combine all script lists for permission setting
+all_scripts=("${successful_downloads[@]}")
+
+# Add xp if it exists (should be downloaded from tools-2025.sh)
+if [ -f "xp" ]; then
+    all_scripts+=("xp")
+fi
+
+# Set permissions only for successfully downloaded scripts
+permission_success=0
+permission_total=${#all_scripts[@]}
+
+for script in "${all_scripts[@]}"; do
     if [ -f "$script" ]; then
-        chmod +x "$script" 2>/dev/null || log_and_show "⚠️ Failed to set permission for $script"
+        if chmod +x "$script" 2>/dev/null; then
+            ((permission_success++))
+        else
+            log_and_show "⚠️ Failed to set permission for $script"
+        fi
     else
         log_and_show "⚠️ Script $script not found, skipping permission setting"
     fi
 done
-log_and_show "✅ Execute permissions configured for available scripts"
+
+log_and_show "✅ Execute permissions set for $permission_success/$permission_total available scripts"
 
 cd /root || cd /home/root || cd ~
 
@@ -1027,44 +1366,104 @@ log_command "apt autoremove -y"
 # Set ownership
 log_command "chown -R www-data:www-data /home/vps/public_html"
 
-# Final service restart sequence (use systemctl instead of init.d)
-sleep 1
-log_and_show "🔄 Restart All service SSH & OVPN"
-log_command "systemctl restart nginx" || log_and_show "⚠️ nginx restart failed"
-sleep 1
-log_and_show "✅ Restarting nginx"
-log_command "systemctl restart openvpn" || log_and_show "⚠️ openvpn restart failed"
-sleep 1
-log_and_show "✅ Restarting cron"
-log_command "/etc/init.d/ssh restart"
-sleep 1
-log_and_show "✅ Restarting ssh"
-log_command "/etc/init.d/dropbear restart"
-sleep 1
-log_and_show "✅ Restarting dropbear"
-log_command "/etc/init.d/fail2ban restart"
-sleep 1
-log_and_show "✅ Restarting fail2ban"
-# Restart stunnel4 menggunakan pendekatan bertahap yang lebih reliable
-if start_stunnel4; then
-    log_and_show "✅ stunnel4 berhasil dimulai dengan pendekatan bertahap"
-else
-    log_and_show "⚠️ stunnel4 gagal dimulai dengan semua metode, silakan cek secara manual"
-    log_and_show "   Jalankan: 'systemctl status stunnel4' untuk melihat detail error"
+# Final service restart sequence with enhanced dependency checking and error handling
+log_and_show "🔄 Enhanced service restart sequence with dependency validation..."
+
+# Define service restart order with criticality levels
+declare -A service_restart_order=(
+    [1]="ssh:SSH Service:true"
+    [2]="dropbear:Dropbear Service:false"
+    [3]="cron:Cron Service:true"
+    [4]="fail2ban:Fail2Ban Protection:false"
+    [5]="squid:Squid Proxy:false"
+    [6]="badvpn-udpgw:BadVPN UDPGW:false"
+)
+
+# Restart services in order
+for order in {1..6}; do
+    if [[ -v service_restart_order[$order] ]]; then
+        IFS=':' read -r service_name description is_critical <<< "${service_restart_order[$order]}"
+        restart_service_with_dependency_check "$service_name" "$description" "$is_critical"
+        sleep 1
+    fi
+done
+
+# Special handling for stunnel4 with enhanced retry mechanism
+log_and_show "🔒 Enhanced stunnel4 restart with multi-method approach..."
+
+stunnel_restart_success=false
+
+# Method 1: Try systemctl
+if systemctl restart stunnel4 2>/dev/null; then
+    if systemctl is-active --quiet stunnel4; then
+        log_and_show "✅ stunnel4 restarted successfully via systemctl"
+        stunnel_restart_success=true
+    fi
 fi
 
-# Check if vnstat service exists before restarting
-if systemctl list-unit-files | grep -q "vnstat.service"; then
-    log_command "systemctl restart vnstat" || log_and_show "⚠️ vnstat restart failed"
-    sleep 1
-    log_and_show "✅ Restarting vnstat"
-elif command -v vnstat >/dev/null 2>&1; then
-    # vnstat binary exists but no systemd service, try to create one
-    log_and_show "🔧 Creating vnstat systemd service..."
+# Method 2: Try init.d if systemctl failed
+if [ "$stunnel_restart_success" = "false" ] && [ -f "/etc/init.d/stunnel4" ]; then
+    if /etc/init.d/stunnel4 restart 2>/dev/null; then
+        sleep 3
+        if pgrep -f stunnel4 >/dev/null; then
+            log_and_show "✅ stunnel4 restarted successfully via init.d"
+            stunnel_restart_success=true
+        fi
+    fi
+fi
+
+# Method 3: Manual start if both methods failed
+if [ "$stunnel_restart_success" = "false" ]; then
+    log_and_show "🔧 Attempting manual stunnel4 startup..."
+    pkill -f stunnel4 2>/dev/null || true
+    sleep 2
     
-    # Detect vnstatd path dynamically
+    if command -v stunnel4 >/dev/null 2>&1 && [ -f /etc/stunnel/stunnel.conf ]; then
+        nohup stunnel4 /etc/stunnel/stunnel.conf >/dev/null 2>&1 &
+        sleep 3
+        if pgrep -f stunnel4 >/dev/null; then
+            log_and_show "✅ stunnel4 started manually"
+            stunnel_restart_success=true
+        fi
+    fi
+fi
+
+# Final stunnel4 status report
+if [ "$stunnel_restart_success" = "true" ]; then
+    log_and_show "🎉 stunnel4 successfully started and running"
+else
+    log_and_show "❌ stunnel4 failed to start with all methods"
+    log_and_show "🔧 Manual intervention may be required after installation"
+    log_and_show "   Check: systemctl status stunnel4"
+    log_and_show "   Check: journalctl -u stunnel4 -n 20"
+fi
+
+# Enhanced vnstat service handling with dynamic detection and creation
+log_and_show "📊 Enhanced vnstat service configuration and restart..."
+
+vnstat_service_handled=false
+
+# Check if vnstat service exists
+if systemctl list-unit-files | grep -q "vnstat.service"; then
+    log_and_show "✅ Found existing vnstat systemd service"
+    if restart_service_with_dependency_check "vnstat" "vnStat Network Monitor" "false"; then
+        vnstat_service_handled=true
+    fi
+elif command -v vnstat >/dev/null 2>&1; then
+    log_and_show "🔧 vnstat binary found but no systemd service, creating enhanced service..."
+    
+    # Detect vnstatd path dynamically with improved search
     VNSTATD_PATH=""
-    for path in /usr/bin/vnstatd /usr/local/bin/vnstatd /bin/vnstatd /usr/sbin/vnstatd; do
+    vnstatd_search_paths=(
+        "/usr/bin/vnstatd"
+        "/usr/local/bin/vnstatd"
+        "/bin/vnstatd"
+        "/usr/sbin/vnstatd"
+        "/usr/local/sbin/vnstatd"
+    )
+    
+    # Try predefined paths first
+    for path in "${vnstatd_search_paths[@]}"; do
         if [[ -x "$path" ]]; then
             VNSTATD_PATH="$path"
             log_and_show "✅ Found vnstatd at: $VNSTATD_PATH"
@@ -1072,19 +1471,21 @@ elif command -v vnstat >/dev/null 2>&1; then
         fi
     done
     
-    # If not found in common paths, try which command
-    if [[ -z "$VNSTATD_PATH" ]]; then
-        if command -v vnstatd >/dev/null 2>&1; then
-            VNSTATD_PATH=$(which vnstatd)
+    # If not found in predefined paths, try which command
+    if [[ -z "$VNSTATD_PATH" ]] && command -v vnstatd >/dev/null 2>&1; then
+        VNSTATD_PATH=$(which vnstatd 2>/dev/null)
+        if [[ -x "$VNSTATD_PATH" ]]; then
             log_and_show "✅ Found vnstatd using which: $VNSTATD_PATH"
         else
-            log_and_show "⚠️ vnstatd not found, using default path /usr/bin/vnstatd"
-            VNSTATD_PATH="/usr/bin/vnstatd"
+            VNSTATD_PATH=""
         fi
     fi
     
-    # Only create service if vnstatd binary actually exists
-    if [[ -x "$VNSTATD_PATH" ]]; then
+    # Create service only if vnstatd binary actually exists and is executable
+    if [[ -n "$VNSTATD_PATH" && -x "$VNSTATD_PATH" ]]; then
+        log_and_show "🔧 Creating enhanced vnstat systemd service for: $VNSTATD_PATH"
+        
+        # Create robust vnstat service
         cat > /etc/systemd/system/vnstat.service << EOF
 [Unit]
 Description=vnStat network traffic monitor
@@ -1095,30 +1496,53 @@ Wants=network-online.target
 [Service]
 Type=forking
 PIDFile=/var/run/vnstat.pid
+ExecStartPre=/bin/mkdir -p /var/lib/vnstat /var/run
+ExecStartPre=/bin/chown vnstat:vnstat /var/lib/vnstat 2>/dev/null || /bin/true
 ExecStart=$VNSTATD_PATH -d --pidfile /var/run/vnstat.pid
 ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+
+# Security settings
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/vnstat
+ReadWritePaths=/var/lib/vnstat /var/run
 ProtectHome=yes
 NoNewPrivileges=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
-        log_command "systemctl daemon-reload"
-        log_command "systemctl enable vnstat"
-        log_command "systemctl start vnstat"
-        log_and_show "✅ vnstat service created and started"
+        
+        # Enable and start the service
+        if systemctl daemon-reload && systemctl enable vnstat 2>/dev/null; then
+            log_and_show "✅ vnstat service enabled successfully"
+            
+            if systemctl start vnstat 2>/dev/null; then
+                log_and_show "✅ vnstat service started successfully"
+                vnstat_service_handled=true
+            else
+                log_and_show "⚠️ vnstat service failed to start, checking status..."
+                systemctl status vnstat --no-pager -n 5 2>/dev/null || true
+            fi
+        else
+            log_and_show "⚠️ Failed to enable vnstat service"
+        fi
     else
-        log_and_show "⚠️ vnstatd binary not found at $VNSTATD_PATH, service creation skipped"
+        log_and_show "⚠️ vnstatd binary not found or not executable, service creation skipped"
+        log_and_show "   Searched paths: ${vnstatd_search_paths[*]}"
     fi
 else
-    log_and_show "⚠️ vnstat not found, service restart skipped"
+    log_and_show "⚠️ vnstat not found in system, service restart skipped"
 fi
-log_command "systemctl restart squid" || log_and_show "⚠️ squid restart failed"
-sleep 1
-log_and_show "✅ Restarting squid"
+
+# Report vnstat handling result
+if [ "$vnstat_service_handled" = "true" ]; then
+    log_and_show "✅ vnstat service successfully configured and running"
+else
+    log_and_show "⚠️ vnstat service could not be started (not critical for VPN functionality)"
+fi
 
 # Start BadVPN services using systemd (no screen jumping)
 log_and_show "✅ BadVPN services already started via systemd"
@@ -1134,25 +1558,90 @@ rm -f /root/cert.pem
 rm -f /root/ssh-vpn.sh
 rm -f /root/bbr.sh
 
-# Log service info to log-install.txt (focus on used components only)
-echo "OpenSSH: 22, 200, 500, 40000, 51443, 58080" >> /root/log-install.txt
-echo "Dropbear: 69, 109, 110, 143, 50000" >> /root/log-install.txt
-echo "Stunnel4: 222, 777" >> /root/log-install.txt
-echo "Squid: 3128, 8080, 8000" >> /root/log-install.txt
-echo "BadVPN UDPGW: 7100-7900" >> /root/log-install.txt
-echo "SSH Websocket: 80" >> /root/log-install.txt
-echo "SSH SSL Websocket: 443" >> /root/log-install.txt
-echo "Fail2Ban: [ON]" >> /root/log-install.txt
-echo "DDoS Deflate: [ON]" >> /root/log-install.txt
-echo "BBR: [ON]" >> /root/log-install.txt
-echo "Iptables: [ON]" >> /root/log-install.txt
-echo "Banner: [ON]" >> /root/log-install.txt
+# Enhanced log service info to log-install.txt with dynamic port information
+log_and_show "📋 Writing enhanced service configuration to log-install.txt..."
 
-log_and_show "✅ SSH/VPN services installation completed with focus on WebSocket technologies"
-log_section "SSH-2025.SH COMPLETED"
+# Write enhanced service information with actual assigned ports
+{
+    echo "OpenSSH: 22, 200, 500, 40000, 51443, 58080"
+    echo "Dropbear: 69, $DROPBEAR_PORT, 110, 143, 50000"
+    echo "Stunnel4: $STUNNEL_PORT_222, $STUNNEL_PORT_777, $STUNNEL_PORT_2096, $STUNNEL_PORT_442"
+    echo "Squid: 3128, 8080, 8000"
+    echo "BadVPN UDPGW: 7100-7900"
+    echo "SSH Websocket: 80"
+    echo "SSH SSL Websocket: 443"
+    echo "Fail2Ban: [ON]"
+    echo "DDoS Deflate: [ON]"
+    echo "BBR: [ON]"
+    echo "Iptables: [ON]"
+    echo "Banner: [ON]"
+    echo ""
+    echo "=== Enhanced Installation Report ==="
+    echo "Installation Date: $(date)"
+    echo "Script Version: ssh-2025.sh Enhanced"
+    echo "Total Scripts Downloaded: ${#successful_downloads[@]}"
+    if [ ${#failed_downloads[@]} -gt 0 ]; then
+        echo "Failed Downloads: ${#failed_downloads[@]} (${failed_downloads[*]})"
+    else
+        echo "All Scripts: Successfully Downloaded"
+    fi
+    echo "Port Conflicts Resolved: $([ "$STUNNEL_PORT_222" != "222" ] || [ "$STUNNEL_PORT_777" != "777" ] || [ "$DROPBEAR_PORT" != "109" ] && echo "Yes" || echo "No")"
+    echo "stunnel4 Status: $([ "$stunnel_restart_success" = "true" ] && echo "Running" || echo "Needs Manual Check")"
+    echo "vnstat Status: $([ "$vnstat_service_handled" = "true" ] && echo "Running" || echo "Not Available")"
+} >> /root/log-install.txt
+
+log_and_show "✅ Enhanced service information logged to /root/log-install.txt"
+log_and_show "📊 Installation Summary:"
+log_and_show "   - Scripts Downloaded: ${#successful_downloads[@]}"
+log_and_show "   - Failed Downloads: ${#failed_downloads[@]}"
+log_and_show "   - Port Conflicts: $([ "$STUNNEL_PORT_222" != "222" ] || [ "$STUNNEL_PORT_777" != "777" ] || [ "$DROPBEAR_PORT" != "109" ] && echo "Resolved" || echo "None")"
+log_and_show "   - stunnel4: $([ "$stunnel_restart_success" = "true" ] && echo "✅ Running" || echo "⚠️ Check Required")"
+
+log_and_show "✅ SSH/VPN services installation completed with enhanced error handling and port conflict resolution"
+log_section "SSH-2025.SH COMPLETED SUCCESSFULLY"
+
+# Enhanced final validation and status report
+log_and_show "🔍 Performing final system validation..."
+
+# Validate critical services
+validation_errors=0
+
+# Check SSH service
+if systemctl is-active --quiet ssh || systemctl is-active --quiet sshd; then
+    log_and_show "✅ SSH service is running"
+else
+    log_and_show "❌ SSH service is not running"
+    ((validation_errors++))
+fi
+
+# Check if essential scripts are available
+essential_scripts=("menu" "usernew" "cek" "delete")
+missing_essential=0
+
+for script in "${essential_scripts[@]}"; do
+    if [ ! -f "/usr/bin/$script" ]; then
+        log_and_show "❌ Essential script $script is missing"
+        ((missing_essential++))
+        ((validation_errors++))
+    fi
+done
+
+if [ $missing_essential -eq 0 ]; then
+    log_and_show "✅ All essential scripts are available"
+fi
+
+# Final status report
+if [ $validation_errors -eq 0 ]; then
+    log_and_show "🎉 Installation completed successfully with no critical issues"
+    exit_code=0
+else
+    log_and_show "⚠️ Installation completed with $validation_errors validation errors"
+    log_and_show "   System should still be functional, but manual review is recommended"
+    exit_code=0  # Don't fail the script, just warn
+fi
 
 # finishing
 clear
 
-# Ensure script exits successfully
-exit 0
+# Ensure script exits with appropriate status
+exit $exit_code

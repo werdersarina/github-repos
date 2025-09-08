@@ -253,20 +253,118 @@ if ! command -v python >/dev/null 2>&1; then
     log_and_show "✅ Python symlink created"
 fi
 
-# Install vnstat - simplified approach like original script
+# Install vnstat - improved approach with proper cleanup
 log_and_show "📊 Installing vnstat..."
 
-# Simple vnstat installation
-/etc/init.d/vnstat restart
-wget -q https://humdi.net/vnstat/vnstat-2.6.tar.gz
-tar zxvf vnstat-2.6.tar.gz >/dev/null 2>&1
-cd vnstat-2.6
-./configure --prefix=/usr --sysconfdir=/etc >/dev/null 2>&1 && make >/dev/null 2>&1 && make install >/dev/null 2>&1
-cd /
-rm -rf vnstat-2.6*
-NET=$(ip -o -4 route show to default | awk '{print $5}' | head -n1)
-vnstat -u -i $NET
-log_and_show "✅ vnstat berhasil diinstal"
+# Stop vnstat service first if running
+systemctl stop vnstat 2>/dev/null || /etc/init.d/vnstat stop 2>/dev/null || true
+
+# Remove existing installation if any
+log_command "apt remove --purge vnstat -y" 2>/dev/null || true
+
+# Clean up any previous installation
+log_command "rm -rf /tmp/vnstat* /root/vnstat*"
+
+# Install vnstat from source with proper error handling
+cd /tmp
+log_and_show "📥 Downloading vnstat source..."
+if ! wget -q --timeout=30 https://humdi.net/vnstat/vnstat-2.6.tar.gz; then
+    log_and_show "⚠️ Download dari humdi.net gagal, mencoba mirror alternatif..."
+    if ! wget -q --timeout=30 https://github.com/vergoh/vnstat/releases/download/v2.6/vnstat-2.6.tar.gz; then
+        log_and_show "❌ Semua download vnstat gagal, melanjutkan tanpa vnstat"
+        cd /root
+        return 1
+    fi
+fi
+
+log_and_show "📦 Extracting dan compiling vnstat..."
+if tar zxf vnstat-2.6.tar.gz >/dev/null 2>&1; then
+    cd vnstat-2.6
+    if ./configure --prefix=/usr --sysconfdir=/etc >/dev/null 2>&1; then
+        if make >/dev/null 2>&1; then
+            if make install >/dev/null 2>&1; then
+                log_and_show "✅ vnstat compiled dan installed successfully"
+                
+                # Setup vnstat with network interface detection
+                NET=$(ip -o -4 route show to default | awk '{print $5}' | head -n1)
+                if [ -n "$NET" ]; then
+                    log_and_show "🌐 Configuring vnstat for interface: $NET"
+                    vnstat -u -i $NET 2>/dev/null || log_and_show "⚠️ vnstat interface setup warning"
+                    
+                    # Create systemd service for vnstat
+                    cat > /etc/systemd/system/vnstat.service << 'EOF'
+[Unit]
+Description=vnStat network traffic monitor
+Documentation=man:vnstatd(1) man:vnstat(1) man:vnstat.conf(5)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/vnstat/vnstat.pid
+ExecStartPre=/bin/mkdir -p /var/run/vnstat
+ExecStartPre=/bin/chown vnstat:vnstat /var/run/vnstat
+ExecStart=/usr/bin/vnstatd -d
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+User=vnstat
+Group=vnstat
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vnstat /var/run/vnstat
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+                    
+                    # Create vnstat user if doesn't exist
+                    if ! id "vnstat" &>/dev/null; then
+                        useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/vnstat --create-home vnstat 2>/dev/null || true
+                    fi
+                    
+                    # Set proper permissions
+                    mkdir -p /var/lib/vnstat /var/run/vnstat
+                    chown vnstat:vnstat /var/lib/vnstat /var/run/vnstat
+                    
+                    systemctl daemon-reload
+                    systemctl enable vnstat
+                    systemctl start vnstat
+                    
+                    log_and_show "✅ vnstat service configured and started"
+                else
+                    log_and_show "⚠️ Network interface not detected for vnstat"
+                fi
+            else
+                log_and_show "❌ vnstat make install failed"
+            fi
+        else
+            log_and_show "❌ vnstat compilation failed"
+        fi
+    else
+        log_and_show "❌ vnstat configure failed"
+    fi
+else
+    log_and_show "❌ vnstat extraction failed"
+fi
+
+# Cleanup
+cd /root
+rm -rf /tmp/vnstat*
+
+# Check if vnstat is working
+if command -v vnstat >/dev/null 2>&1; then
+    log_and_show "✅ vnstat berhasil diinstal"
+else
+    log_and_show "⚠️ vnstat command not available, skipping service startup"
+fi
 
 log_and_show "✅ All tools installation completed successfully"
 
@@ -400,6 +498,7 @@ logpath = /var/log/nginx/error.log
 maxretry = 3
 findtime = 600
 bantime = 3600
+backend = systemd
 
 [nginx-noscript]
 enabled = true
@@ -409,6 +508,7 @@ logpath = /var/log/nginx/access.log
 maxretry = 6
 findtime = 600
 bantime = 3600
+backend = systemd
 
 [nginx-badbots]
 enabled = true
@@ -418,6 +518,7 @@ logpath = /var/log/nginx/access.log
 maxretry = 2
 findtime = 600
 bantime = 86400
+backend = systemd
 
 [nginx-noproxy]
 enabled = true
@@ -427,6 +528,7 @@ logpath = /var/log/nginx/access.log
 maxretry = 2
 findtime = 600
 bantime = 86400
+backend = systemd
 
 [nginx-ddos]
 enabled = true
@@ -436,6 +538,7 @@ logpath = /var/log/nginx/access.log
 maxretry = 50
 findtime = 60
 bantime = 600
+backend = systemd
 
 [sshd]
 enabled = true
@@ -445,6 +548,7 @@ logpath = /var/log/auth.log
 maxretry = 3
 findtime = 600
 bantime = 3600
+backend = systemd
 EOF
 
 log_command "systemctl enable fail2ban"
