@@ -395,12 +395,39 @@ done
 # Configure SSH ports
 echo -e "[ ${green}INFO${NC} ] Configuring SSH ports..."
 cd /root
+
+# Backup original SSH config
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+
+# Enable password authentication
 sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-# Add multiple SSH ports
+
+# GCP-specific SSH optimizations
+sed -i 's/#ClientAliveInterval 0/ClientAliveInterval 60/g' /etc/ssh/sshd_config
+sed -i 's/#ClientAliveCountMax 3/ClientAliveCountMax 3/g' /etc/ssh/sshd_config
+sed -i 's/#TCPKeepAlive yes/TCPKeepAlive yes/g' /etc/ssh/sshd_config
+
+# Ensure Port 22 exists and add additional ports
+if ! grep -q "^Port 22" /etc/ssh/sshd_config; then
+    echo "Port 22" >> /etc/ssh/sshd_config
+fi
+
+# Add multiple SSH ports safely
 for port in 500 40000 51443 58080 200; do
-    sed -i "/Port 22/a Port $port" /etc/ssh/sshd_config
+    if ! grep -q "^Port $port" /etc/ssh/sshd_config; then
+        echo "Port $port" >> /etc/ssh/sshd_config
+    fi
 done
-systemctl restart ssh >/dev/null 2>&1
+
+# Test SSH configuration before restart
+if sshd -t; then
+    echo -e "[ ${green}INFO${NC} ] SSH configuration is valid"
+    systemctl restart ssh >/dev/null 2>&1
+else
+    echo -e "[ ${red}ERROR${NC} ] SSH configuration error, restoring backup"
+    cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
+    systemctl restart ssh >/dev/null 2>&1
+fi
 
 # Configure Dropbear SSH
 echo -e "[ ${green}INFO${NC} ] Installing and configuring Dropbear..."
@@ -530,23 +557,24 @@ apt -y install fail2ban >/dev/null 2>&1
 
 cat > /etc/fail2ban/jail.local <<'EOF'
 [DEFAULT]
-bantime = 3600
+bantime = 300
 findtime = 600
-maxretry = 5
+maxretry = 10
+ignoreip = 127.0.0.1/8 35.235.240.0/20 130.211.0.0/22 35.191.0.0/16
 
 [ssh]
 enabled = true
 port = ssh
 filter = sshd
 logpath = /var/log/auth.log
-maxretry = 3
+maxretry = 10
 
 [dropbear]
 enabled = true
 port = ssh
 filter = dropbear
 logpath = /var/log/auth.log
-maxretry = 3
+maxretry = 10
 EOF
 
 systemctl enable fail2ban >/dev/null 2>&1
@@ -602,9 +630,9 @@ CONF_FILE="/usr/local/ddos/ddos.conf"
 LOG_FILE="/var/log/ddos/ddos.log"
 BAN_LIST="/usr/local/ddos/banned_ips.txt"
 
-# Load configuration with defaults
-MAX_CONNECTIONS=150
-BAN_PERIOD=600
+# Load configuration with defaults (GCP-optimized)
+MAX_CONNECTIONS=500
+BAN_PERIOD=300
 CHECK_INTERVAL=60
 [ -f "$CONF_FILE" ] && source "$CONF_FILE"
 
@@ -614,7 +642,9 @@ log_message() {
 
 check_connections() {
     netstat -ntu | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -nr | while read count ip; do
+        # Skip localhost, private IPs, and Google Cloud IP ranges
         [[ -z "$ip" || "$ip" == "127.0.0.1" || "$ip" =~ ^192\.168\. || "$ip" =~ ^10\. || "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] && continue
+        [[ "$ip" =~ ^35\.235\.24[0-9]\. || "$ip" =~ ^130\.211\. || "$ip" =~ ^35\.191\. ]] && continue
         
         if [ "$count" -gt "$MAX_CONNECTIONS" ] && ! grep -q "$ip" "$BAN_LIST" 2>/dev/null; then
             iptables -I INPUT -s "$ip" -j DROP
@@ -679,10 +709,28 @@ chmod +x bbr.sh
 # Configure firewall and anti-torrent
 echo -e "[ ${green}INFO${NC} ] Configuring firewall and anti-torrent rules..."
 
-# Ensure SSH ports are always accessible
+# Ensure Google Cloud IAP IP ranges are whitelisted first (CRITICAL for GCP)
+iptables -I INPUT -s 35.235.240.0/20 -j ACCEPT
+iptables -I INPUT -s 130.211.0.0/22 -j ACCEPT
+iptables -I INPUT -s 35.191.0.0/16 -j ACCEPT
+
+# Additional Google Cloud Platform IP ranges
+iptables -I INPUT -s 34.96.0.0/20 -j ACCEPT
+iptables -I INPUT -s 34.127.0.0/16 -j ACCEPT
+
+# Emergency access - always allow localhost and private networks
+iptables -I INPUT -s 127.0.0.0/8 -j ACCEPT
+iptables -I INPUT -s 10.0.0.0/8 -j ACCEPT
+iptables -I INPUT -s 172.16.0.0/12 -j ACCEPT
+iptables -I INPUT -s 192.168.0.0/16 -j ACCEPT
+
+# Ensure SSH ports are always accessible (HIGHEST PRIORITY)
 for port in 22 200 500 40000 51443 58080; do
     iptables -I INPUT -p tcp --dport $port -j ACCEPT
 done
+
+# Allow established connections to prevent disconnection
+iptables -I INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 
 # Block torrent traffic
 iptables -A FORWARD -m string --string "get_peers" --algo bm -j DROP
@@ -697,12 +745,58 @@ iptables -A FORWARD -m string --algo bm --string "torrent" -j DROP
 iptables -A FORWARD -m string --algo bm --string "announce" -j DROP
 iptables -A FORWARD -m string --algo bm --string "info_hash" -j DROP
 
-# Save iptables rules
+# Save iptables rules and create emergency reset
 iptables-save > /etc/iptables.up.rules
 if command -v netfilter-persistent >/dev/null; then
     netfilter-persistent save >/dev/null 2>&1
     netfilter-persistent reload >/dev/null 2>&1
 fi
+
+# Create emergency SSH reset script
+cat > /usr/local/bin/emergency-ssh-reset.sh << 'EOF'
+#!/bin/bash
+# Emergency SSH Reset Script - Run this if SSH is blocked
+echo "Emergency SSH Reset - Clearing all blocking rules..."
+
+# Flush all iptables rules
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+iptables -t mangle -F
+iptables -t mangle -X
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# Restart SSH service
+systemctl restart ssh
+systemctl restart sshd 2>/dev/null
+
+# Stop fail2ban temporarily
+systemctl stop fail2ban 2>/dev/null
+
+# Clear DDoS banned IPs
+if [ -f "/usr/local/ddos/banned_ips.txt" ]; then
+    > /usr/local/ddos/banned_ips.txt
+fi
+
+echo "SSH should now be accessible on port 22"
+echo "Run this from console/serial access if needed"
+EOF
+
+chmod +x /usr/local/bin/emergency-ssh-reset.sh
+
+# Add emergency reset to cron (runs every 5 minutes, but only if SSH is down)
+cat > /usr/local/bin/ssh-monitor.sh << 'EOF'
+#!/bin/bash
+# Check if SSH is accessible, if not run emergency reset
+if ! ss -tln | grep -q ":22 "; then
+    /usr/local/bin/emergency-ssh-reset.sh
+fi
+EOF
+
+chmod +x /usr/local/bin/ssh-monitor.sh
 
 # Download management scripts
 echo -e "[ ${green}INFO${NC} ] Downloading management scripts..."
@@ -806,12 +900,12 @@ services=(
     "cron" 
     "ssh"
     "dropbear-multi"
-    "fail2ban"
     "stunnel4"
     "vnstat"
     "squid"
 )
 
+# Restart fail2ban last to prevent issues during service restart
 for service in "${services[@]}"; do
     echo -e "[ ${green}INFO${NC} ] Restarting $service..."
     if systemctl is-enabled "$service" >/dev/null 2>&1 || systemctl list-unit-files | grep -q "$service"; then
@@ -819,8 +913,22 @@ for service in "${services[@]}"; do
     else
         /etc/init.d/"$service" restart >/dev/null 2>&1
     fi
-    sleep 1
+    sleep 2  # Increased delay to prevent connection issues
 done
+
+# Restart fail2ban last after other services are stable
+echo -e "[ ${green}INFO${NC} ] Restarting fail2ban..."
+systemctl restart fail2ban >/dev/null 2>&1
+sleep 3
+
+# Verify SSH is still accessible
+if ss -tln | grep -q ":22 "; then
+    echo -e "[ ${green}INFO${NC} ] SSH port 22 is accessible"
+else
+    echo -e "[ ${red}WARNING${NC} ] SSH port 22 may not be accessible"
+    # Try to restart SSH again
+    systemctl restart ssh >/dev/null 2>&1
+fi
 
 # Start badvpn UDP gateways
 echo -e "[ ${green}INFO${NC} ] Starting badvpn UDP gateways..."
@@ -1904,7 +2012,19 @@ fi
 
 mesg n || true
 clear
-menu
+
+# Only show menu if SSH is interactive and stable
+if [ -t 0 ] && [ -n "\$SSH_TTY" ] && [ "\$TERM" != "dumb" ]; then
+    # Add small delay to ensure SSH connection is stable
+    sleep 1
+    # Check if menu command exists and is executable
+    if command -v menu >/dev/null 2>&1; then
+        menu
+    else
+        echo "Welcome to VPN Server"
+        echo "Type 'menu' to access server management"
+    fi
+fi
 END
 chmod 644 /root/.profile
 
@@ -1975,6 +2095,18 @@ echo "------------------------------------------------------------"
 echo ""
 echo "===============-[ Script Created By YT ZIXSTYLE ]-==============="
 echo -e ""
+echo ""
+echo "🔥 IMPORTANT NOTES FOR GOOGLE CLOUD PLATFORM:"
+echo "   - If SSH gets blocked, use Google Cloud Console access"
+echo "   - Emergency reset: Run '/usr/local/bin/emergency-ssh-reset.sh'"
+echo "   - SSH Monitor: Automatic recovery every 5 minutes"
+echo "   - GCP IAP ranges are whitelisted: 35.235.240.0/20"
+echo ""
+echo "🔧 TROUBLESHOOTING:"
+echo "   - Main SSH Port: 22"
+echo "   - Alternative Ports: 200, 500, 40000, 51443, 58080"
+echo "   - Check SSH status: systemctl status ssh"
+echo "   - View fail2ban status: fail2ban-client status"
 echo ""
 echo "" | tee -a log-install.txt
 
