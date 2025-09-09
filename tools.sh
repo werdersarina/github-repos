@@ -41,6 +41,12 @@ sudo apt install -y screen curl jq bzip2 gzip coreutils rsyslog iftop \
 curl -sSL https://deb.nodesource.com/setup_20.x | bash - 
 sudo apt-get install nodejs -y
 
+# Get network interface name correctly
+NET=$(ip route | grep default | awk '{print $5}' | head -1)
+if [ -z "$NET" ]; then
+    NET=$(ls /sys/class/net/ | grep -v lo | head -1)
+fi
+
 /etc/init.d/vnstat restart
 wget -q https://humdi.net/vnstat/vnstat-2.12.tar.gz
 tar zxvf vnstat-2.12.tar.gz
@@ -48,10 +54,10 @@ cd vnstat-2.12
 ./configure --prefix=/usr --sysconfdir=/etc >/dev/null 2>&1 && make >/dev/null 2>&1 && make install >/dev/null 2>&1
 cd
 vnstat -u -i $NET
-sed -i 's/Interface "'""eth0""'"/Interface "'""$NET""'"/g' /etc/vnstat.conf
+sed -i "s/Interface \"eth0\"/Interface \"$NET\"/g" /etc/vnstat.conf
 chown vnstat:vnstat /var/lib/vnstat -R
 systemctl enable vnstat
-/etc/init.d/vnstat restart
+systemctl restart vnstat
 rm -f /root/vnstat-2.12.tar.gz >/dev/null 2>&1
 rm -rf /root/vnstat-2.12 >/dev/null 2>&1
 

@@ -6,7 +6,10 @@
 export DEBIAN_FRONTEND=noninteractive
 MYIP=$(wget -qO- ipinfo.io/ip);
 MYIP2="s/xxxxxxxxx/$MYIP/g";
-NET=$(ip -o $ANU -4 route show to default | awk '{print $5}');
+NET=$(ip route | grep default | awk '{print $5}' | head -1);
+if [ -z "$NET" ]; then
+    NET=$(ls /sys/class/net/ | grep -v lo | head -1)
+fi
 source /etc/os-release
 ver=$VERSION_ID
 
@@ -210,11 +213,76 @@ cat key.pem cert.pem >> /etc/stunnel/stunnel.pem
 
 # konfigurasi stunnel
 sed -i 's/ENABLED=0/ENABLED=1/g' /etc/default/stunnel4
-/etc/init.d/stunnel4 restart
+chmod 600 /etc/stunnel/stunnel.pem
+# Add to systemd if not using sysvinit
+if command -v systemctl > /dev/null; then
+    systemctl enable stunnel4
+    systemctl restart stunnel4
+else
+    /etc/init.d/stunnel4 restart
+fi
 
 
 # install fail2ban
 apt -y install fail2ban
+# Basic fail2ban configuration
+cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+
+[ssh]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+
+[dropbear]
+enabled = true
+port = ssh
+filter = dropbear
+logpath = /var/log/auth.log
+maxretry = 3
+EOF
+systemctl enable fail2ban
+systemctl restart fail2ban
+
+# install squid
+apt -y install squid
+# Basic squid configuration
+cat > /etc/squid/squid.conf <<EOF
+acl localhost src 127.0.0.1/32 ::1
+acl to_localhost dst 127.0.0.0/8 0.0.0.0/32 ::1
+acl localnet src 10.0.0.0/8
+acl localnet src 172.16.0.0/12
+acl localnet src 192.168.0.0/16
+acl SSL_ports port 443
+acl Safe_ports port 80
+acl Safe_ports port 21
+acl Safe_ports port 443
+acl Safe_ports port 70
+acl Safe_ports port 210
+acl Safe_ports port 1025-65535
+acl Safe_ports port 280
+acl Safe_ports port 488
+acl Safe_ports port 591
+acl Safe_ports port 777
+acl CONNECT method CONNECT
+http_access allow localnet
+http_access allow localhost
+http_access deny all
+http_port 3128
+http_port 8080
+coredump_dir /var/spool/squid
+refresh_pattern ^ftp: 1440 20% 10080
+refresh_pattern ^gopher: 1440 0% 1440
+refresh_pattern -i (/cgi-bin/|\?) 0 0% 0
+refresh_pattern . 0 20% 4320
+EOF
+systemctl enable squid
+systemctl restart squid
 
 # Install Custom DDoS Protection
 echo; echo 'Installing Custom DDoS Protection'; echo
