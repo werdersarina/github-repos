@@ -163,7 +163,6 @@ sed -i '/Port 22/a Port 40000' /etc/ssh/sshd_config
 sed -i '/Port 22/a Port 51443' /etc/ssh/sshd_config
 sed -i '/Port 22/a Port 58080' /etc/ssh/sshd_config
 sed -i '/Port 22/a Port 200' /etc/ssh/sshd_config
-sed -i '/Port 22/a Port 22' /etc/ssh/sshd_config
 /etc/init.d/ssh restart
 
 echo "=== Install Dropbear ==="
@@ -497,6 +496,14 @@ sed -i 's@DROPBEAR_BANNER=""@DROPBEAR_BANNER="/etc/issue.net"@g' /etc/default/dr
 wget https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/bbr.sh && chmod +x bbr.sh && ./bbr.sh
 
 # blockir torrent
+# Ensure SSH ports are always accessible first
+iptables -I INPUT -p tcp --dport 22 -j ACCEPT
+iptables -I INPUT -p tcp --dport 200 -j ACCEPT
+iptables -I INPUT -p tcp --dport 500 -j ACCEPT
+iptables -I INPUT -p tcp --dport 40000 -j ACCEPT
+iptables -I INPUT -p tcp --dport 51443 -j ACCEPT
+iptables -I INPUT -p tcp --dport 58080 -j ACCEPT
+
 iptables -A FORWARD -m string --string "get_peers" --algo bm -j DROP
 iptables -A FORWARD -m string --string "announce_peer" --algo bm -j DROP
 iptables -A FORWARD -m string --string "find_node" --algo bm -j DROP
