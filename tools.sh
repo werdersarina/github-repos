@@ -47,22 +47,39 @@ if [ -z "$NET" ]; then
     NET=$(ls /sys/class/net/ | grep -v lo | head -1)
 fi
 
-/etc/init.d/vnstat restart
-wget -q https://humdi.net/vnstat/vnstat-2.12.tar.gz
-tar zxvf vnstat-2.12.tar.gz
-cd vnstat-2.12
-./configure --prefix=/usr --sysconfdir=/etc >/dev/null 2>&1 && make >/dev/null 2>&1 && make install >/dev/null 2>&1
-cd
-vnstat -u -i $NET
+# Install vnstat
+echo "Installing vnstat..."
+systemctl stop vnstat >/dev/null 2>&1
+
+# First try package installation
+apt-get install vnstat -y >/dev/null 2>&1
+
+# If package doesn't work, compile from source
+if ! command -v vnstat >/dev/null 2>&1; then
+    cd /root
+    wget -q https://humdi.net/vnstat/vnstat-2.12.tar.gz
+    tar zxvf vnstat-2.12.tar.gz >/dev/null 2>&1
+    cd vnstat-2.12
+    ./configure --prefix=/usr --sysconfdir=/etc --sbindir=/usr/bin >/dev/null 2>&1
+    make >/dev/null 2>&1
+    make install >/dev/null 2>&1
+    cd /root
+    rm -f vnstat-2.12.tar.gz >/dev/null 2>&1
+    rm -rf vnstat-2.12 >/dev/null 2>&1
+fi
+
+# Create vnstat user if doesn't exist
+if ! id -u vnstat >/dev/null 2>&1; then
+    useradd -r -s /bin/false vnstat >/dev/null 2>&1
+fi
+
+# Initialize vnstat
+mkdir -p /var/lib/vnstat
+/usr/bin/vnstat -u -i $NET >/dev/null 2>&1
 sed -i "s/Interface \"eth0\"/Interface \"$NET\"/g" /etc/vnstat.conf
 chown vnstat:vnstat /var/lib/vnstat -R
-systemctl enable vnstat
-systemctl restart vnstat
-rm -f /root/vnstat-2.12.tar.gz >/dev/null 2>&1
-rm -rf /root/vnstat-2.12 >/dev/null 2>&1
-
-
-fi
+systemctl enable vnstat >/dev/null 2>&1
+systemctl restart vnstat >/dev/null 2>&1
 
 sudo apt install -y libnss3-dev libnspr4-dev pkg-config libpam0g-dev libcap-ng-dev libcap-ng-utils libselinux1-dev libcurl4-nss-dev flex bison make libnss3-tools libevent-dev xl2tpd pptpd
 

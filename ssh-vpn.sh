@@ -169,13 +169,83 @@ sed -i '/Port 22/a Port 22' /etc/ssh/sshd_config
 echo "=== Install Dropbear ==="
 # install dropbear
 apt -y install dropbear
+
+# Stop default dropbear service first
+systemctl stop dropbear >/dev/null 2>&1
+systemctl disable dropbear >/dev/null 2>&1
+
+# Configure dropbear for Ubuntu 24.04 LTS compatibility
 sed -i 's/NO_START=1/NO_START=0/g' /etc/default/dropbear
 sed -i 's/DROPBEAR_PORT=22/DROPBEAR_PORT=143/g' /etc/default/dropbear
 sed -i 's/DROPBEAR_EXTRA_ARGS=/DROPBEAR_EXTRA_ARGS="-p 50000 -p 109 -p 110 -p 69"/g' /etc/default/dropbear
-echo "/bin/false" >> /etc/shells
-echo "/usr/sbin/nologin" >> /etc/shells
-/etc/init.d/ssh restart
-/etc/init.d/dropbear restart
+
+# Generate all required dropbear host keys
+mkdir -p /etc/dropbear
+echo "Generating dropbear host keys..."
+if [ ! -f /etc/dropbear/dropbear_rsa_host_key ]; then
+    dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key -s 2048 >/dev/null 2>&1
+fi
+if [ ! -f /etc/dropbear/dropbear_dss_host_key ]; then
+    dropbearkey -t dss -f /etc/dropbear/dropbear_dss_host_key >/dev/null 2>&1
+fi
+if [ ! -f /etc/dropbear/dropbear_ecdsa_host_key ]; then
+    dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key >/dev/null 2>&1
+fi
+if [ ! -f /etc/dropbear/dropbear_ed25519_host_key ]; then
+    dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1
+fi
+
+# Set proper permissions for host keys
+chmod 600 /etc/dropbear/dropbear_*_host_key
+chown root:root /etc/dropbear/dropbear_*_host_key
+
+# Ensure proper shells are available
+grep -qxF "/bin/false" /etc/shells || echo "/bin/false" >> /etc/shells
+grep -qxF "/usr/sbin/nologin" /etc/shells || echo "/usr/sbin/nologin" >> /etc/shells
+
+# Create systemd service file for Ubuntu 24.04 LTS
+cat > /etc/systemd/system/dropbear-multi.service <<EOF
+[Unit]
+Description=Dropbear SSH server (multi-port)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=notify
+ExecStart=/usr/sbin/dropbear -F -E -p 143 -p 50000 -p 109 -p 110 -p 69
+ExecReload=/bin/kill -HUP \$MAINPID
+KillMode=process
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable and start the new service
+systemctl daemon-reload
+systemctl enable dropbear-multi.service
+systemctl start dropbear-multi.service
+
+# Wait and verify
+sleep 3
+if systemctl is-active --quiet dropbear-multi; then
+    echo "Dropbear multi-port service started successfully"
+    systemctl status dropbear-multi --no-pager -l
+else
+    echo "Warning: Dropbear failed to start with systemd, trying manual start..."
+    # Kill any existing processes
+    pkill -f dropbear 2>/dev/null
+    sleep 2
+    # Start manually in background
+    nohup /usr/sbin/dropbear -F -E -p 143 -p 50000 -p 109 -p 110 -p 69 >/dev/null 2>&1 &
+    sleep 2
+    if pgrep -f "dropbear.*-p.*143" >/dev/null; then
+        echo "Dropbear started manually on multiple ports"
+    else
+        echo "ERROR: Dropbear failed to start completely"
+    fi
+fi
 
 cd
 # install stunnel
@@ -569,28 +639,46 @@ cd
 chown -R www-data:www-data /home/vps/public_html
 sleep 1
 echo -e "$yell[SERVICE]$NC Restart All service SSH & OVPN"
-/etc/init.d/nginx restart >/dev/null 2>&1
+
+# Use systemctl for Ubuntu 24.04 LTS compatibility with fallback to init.d
+systemctl restart nginx >/dev/null 2>&1 || /etc/init.d/nginx restart >/dev/null 2>&1
 sleep 1
 echo -e "[ ${green}ok${NC} ] Restarting nginx"
-/etc/init.d/openvpn restart >/dev/null 2>&1
+
+# OpenVPN might not be configured, so check if service exists
+if systemctl list-unit-files | grep -q openvpn; then
+    systemctl restart openvpn >/dev/null 2>&1
+else
+    /etc/init.d/openvpn restart >/dev/null 2>&1
+fi
+sleep 1
+echo -e "[ ${green}ok${NC} ] Restarting openvpn "
+
+systemctl restart cron >/dev/null 2>&1 || /etc/init.d/cron restart >/dev/null 2>&1
 sleep 1
 echo -e "[ ${green}ok${NC} ] Restarting cron "
-/etc/init.d/ssh restart >/dev/null 2>&1
+
+systemctl restart ssh >/dev/null 2>&1 || /etc/init.d/ssh restart >/dev/null 2>&1
 sleep 1
 echo -e "[ ${green}ok${NC} ] Restarting ssh "
-/etc/init.d/dropbear restart >/dev/null 2>&1
+
+systemctl restart dropbear >/dev/null 2>&1 || /etc/init.d/dropbear restart >/dev/null 2>&1
 sleep 1
 echo -e "[ ${green}ok${NC} ] Restarting dropbear "
-/etc/init.d/fail2ban restart >/dev/null 2>&1
+
+systemctl restart fail2ban >/dev/null 2>&1 || /etc/init.d/fail2ban restart >/dev/null 2>&1
 sleep 1
 echo -e "[ ${green}ok${NC} ] Restarting fail2ban "
-/etc/init.d/stunnel4 restart >/dev/null 2>&1
+
+systemctl restart stunnel4 >/dev/null 2>&1 || /etc/init.d/stunnel4 restart >/dev/null 2>&1
 sleep 1
 echo -e "[ ${green}ok${NC} ] Restarting stunnel4 "
-/etc/init.d/vnstat restart >/dev/null 2>&1
+
+systemctl restart vnstat >/dev/null 2>&1 || /etc/init.d/vnstat restart >/dev/null 2>&1
 sleep 1
 echo -e "[ ${green}ok${NC} ] Restarting vnstat "
-/etc/init.d/squid restart >/dev/null 2>&1
+
+systemctl restart squid >/dev/null 2>&1 || /etc/init.d/squid restart >/dev/null 2>&1
 
 screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7100 --max-clients 500
 screen -dmS badvpn badvpn-udpgw --listen-addr 127.0.0.1:7200 --max-clients 500
