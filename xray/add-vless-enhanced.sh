@@ -6,6 +6,11 @@ domain=$(cat /root/domain)
 REALITY_PRIVATE=$(grep "REALITY_PRIVATE=" /etc/xray/.config-details | cut -d'=' -f2)
 REALITY_PUBLIC=$(grep "REALITY_PUBLIC=" /etc/xray/.config-details | cut -d'=' -f2)
 
+# Load Custom Paths (with fallback to legacy)
+VLESS_WS_PATH=$(cat /etc/xray/vless_path 2>/dev/null || echo "/vless")
+VLESS_XHTTP_PATH=$(cat /etc/xray/vless_xhttp_path 2>/dev/null || echo "/vless-xhttp")
+VLESS_GRPC_SERVICE=$(cat /etc/xray/vless_grpc_service 2>/dev/null || echo "vless-grpc")
+
 until [[ $user =~ ^[a-zA-Z0-9_]+$ && ${#user} -ge 1 && ${#user} -le 15 ]]; do
     read -rp "Username : " -e user
 done
@@ -36,11 +41,11 @@ sed -i '/#vless-xhttp$/a\### '"$user $exp"'\
 sed -i '/#vless-reality$/a\### '"$user $exp"'\
 },{"id": "'""$uuid""'","flow": "xtls-rprx-vision"' /etc/xray/config.json
 
-# Generate Enhanced Client Configs - ALL using standard ports 80/443
-vless_ws_tls="vless://${uuid}@${domain}:443?type=ws&path=/vless&host=${domain}&security=tls&encryption=none&sni=${domain}#${user}-WS-TLS"
-vless_ws_ntls="vless://${uuid}@${domain}:80?type=ws&path=/vless&host=${domain}&security=none&encryption=none#${user}-WS-NTLS"
-vless_grpc="vless://${uuid}@${domain}:443?type=grpc&serviceName=vless-grpc&host=${domain}&security=tls&encryption=none&sni=${domain}#${user}-GRPC"
-vless_xhttp="vless://${uuid}@${domain}:443?type=xhttp&path=/vless-xhttp&host=${domain}&security=tls&encryption=none&sni=${domain}#${user}-XHTTP"
+# Generate Enhanced Client Configs - Using CUSTOM paths
+vless_ws_tls="vless://${uuid}@${domain}:443?type=ws&path=${VLESS_WS_PATH}&host=${domain}&security=tls&encryption=none&sni=${domain}#${user}-WS-TLS"
+vless_ws_ntls="vless://${uuid}@${domain}:80?type=ws&path=${VLESS_WS_PATH}&host=${domain}&security=none&encryption=none#${user}-WS-NTLS"
+vless_grpc="vless://${uuid}@${domain}:443?type=grpc&serviceName=${VLESS_GRPC_SERVICE}&host=${domain}&security=tls&encryption=none&sni=${domain}#${user}-GRPC"
+vless_xhttp="vless://${uuid}@${domain}:443?type=xhttp&path=${VLESS_XHTTP_PATH}&host=${domain}&security=tls&encryption=none&sni=${domain}#${user}-XHTTP"
 vless_reality="vless://${uuid}@${domain}:8443?type=tcp&security=reality&fp=chrome&pbk=${REALITY_PUBLIC}&sni=www.microsoft.com&flow=xtls-rprx-vision&sid=6ba85179e30d4fc2#${user}-REALITY"
 
 # Create Enhanced Config File

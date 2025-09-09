@@ -23,8 +23,15 @@ BURIQ () {
 # https://raw.githubusercontent.com/werdersarina/github-repos/main/ip 
 MYIP=$(curl -sS ipv4.icanhazip.com)
 Name=$(curl -sS https://raw.githubusercontent.com/werdersarina/github-repos/main/ip | grep $MYIP | awk '{print $2}')
-echo $Name > /usr/local/etc/.$Name.ini
-CekOne=$(cat /usr/local/etc/.$Name.ini)
+# Create directory if not exists and handle permissions
+mkdir -p /usr/local/etc 2>/dev/null || mkdir -p /tmp/vpn-check 2>/dev/null
+if [ -w /usr/local/etc ]; then
+    echo $Name > /usr/local/etc/.$Name.ini 2>/dev/null || echo $Name > /tmp/vpn-check/.$Name.ini
+    CekOne=$(cat /usr/local/etc/.$Name.ini 2>/dev/null || cat /tmp/vpn-check/.$Name.ini)
+else
+    echo $Name > /tmp/vpn-check/.$Name.ini
+    CekOne=$(cat /tmp/vpn-check/.$Name.ini)
+fi
 
 Bloman () {
 if [ -f "/etc/.$Name.ini" ]; then
@@ -69,13 +76,29 @@ LIGHT='\033[0;37m'
 #Domain
 domain=$(cat /etc/xray/domain)
 #Status certificate
-modifyTime=$(stat $HOME/.acme.sh/${domain}_ecc/${domain}.key | sed -n '7,6p' | awk '{print $2" "$3" "$4" "$5}')
-modifyTime1=$(date +%s -d "${modifyTime}")
-currentTime=$(date +%s)
-stampDiff=$(expr ${currentTime} - ${modifyTime1})
-days=$(expr ${stampDiff} / 86400)
-remainingDays=$(expr 90 - ${days})
-tlsStatus=${remainingDays}
+# Check SSL certificate status with error handling
+if [ -f "/root/.acme.sh/${domain}_ecc/${domain}.key" ]; then
+    modifyTime=$(stat /root/.acme.sh/${domain}_ecc/${domain}.key 2>/dev/null | sed -n '7,6p' | awk '{print $2" "$3" "$4" "$5}')
+elif [ -f "$HOME/.acme.sh/${domain}_ecc/${domain}.key" ]; then
+    modifyTime=$(stat $HOME/.acme.sh/${domain}_ecc/${domain}.key 2>/dev/null | sed -n '7,6p' | awk '{print $2" "$3" "$4" "$5}')
+else
+    modifyTime=""
+fi
+
+if [ -n "$modifyTime" ]; then
+    modifyTime1=$(date +%s -d "${modifyTime}" 2>/dev/null)
+    currentTime=$(date +%s)
+    if [ -n "$modifyTime1" ]; then
+        stampDiff=$(expr ${currentTime} - ${modifyTime1})
+        days=$(expr ${stampDiff} / 86400)
+        remainingDays=$(expr 90 - ${days})
+        tlsStatus=${remainingDays}
+    else
+        tlsStatus="unknown"
+    fi
+else
+    tlsStatus="not found"
+fi
 if [[ ${remainingDays} -le 0 ]]; then
 	tlsStatus="expired"
 fi

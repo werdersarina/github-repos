@@ -4,6 +4,10 @@
 
 domain=$(cat /root/domain)
 
+# Load Custom Paths (with fallback to legacy)
+TROJAN_WS_PATH=$(cat /etc/xray/trojan_ws_path 2>/dev/null || echo "/trojan-ws")
+TROJAN_GRPC_SERVICE=$(cat /etc/xray/trojan_grpc_service 2>/dev/null || echo "trojan-grpc")
+
 until [[ $user =~ ^[a-zA-Z0-9_]+$ && ${#user} -ge 1 && ${#user} -le 15 ]]; do
     read -rp "Username : " -e user
 done
@@ -26,10 +30,10 @@ sed -i '/#trojanws$/a\### '"$user $exp"'\
 sed -i '/#trojangrpc$/a\### '"$user $exp"'\
 },{"password": "'""$uuid""'"' /etc/xray/config.json
 
-# Generate Enhanced Client Configs - ALL using standard ports 80/443
-trojan_ws_tls="trojan://${uuid}@${domain}:443?type=ws&path=%2Ftrojan-ws&host=${domain}&security=tls&sni=${domain}#${user}-WS-TLS"
-trojan_ws_ntls="trojan://${uuid}@${domain}:80?type=ws&path=%2Ftrojan-ws&host=${domain}&security=none#${user}-WS-NTLS"
-trojan_grpc="trojan://${uuid}@${domain}:443?type=grpc&serviceName=trojan-grpc&host=${domain}&security=tls&sni=${domain}#${user}-GRPC"
+# Generate Enhanced Client Configs - Using CUSTOM paths
+trojan_ws_tls="trojan://${uuid}@${domain}:443?type=ws&path=$(echo -n "$TROJAN_WS_PATH" | sed 's|/|%2F|g')&host=${domain}&security=tls&sni=${domain}#${user}-WS-TLS"
+trojan_ws_ntls="trojan://${uuid}@${domain}:80?type=ws&path=$(echo -n "$TROJAN_WS_PATH" | sed 's|/|%2F|g')&host=${domain}&security=none#${user}-WS-NTLS"
+trojan_grpc="trojan://${uuid}@${domain}:443?type=grpc&serviceName=${TROJAN_GRPC_SERVICE}&host=${domain}&security=tls&sni=${domain}#${user}-GRPC"
 
 # Create Enhanced Config File
 cat > /home/vps/public_html/trojan-enhanced-${user}.txt << EOF

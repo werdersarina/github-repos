@@ -4,6 +4,11 @@
 
 domain=$(cat /root/domain)
 
+# Load custom paths from configuration (fallback to legacy if not found)
+VMESS_WS_PATH=$(cat /etc/xray/vmess_path 2>/dev/null || echo "/vmess")
+VMESS_XHTTP_PATH=$(cat /etc/xray/vmess_xhttp_path 2>/dev/null || echo "/vmess-xhttp") 
+VMESS_GRPC_SERVICE=$(cat /etc/xray/vmess_grpc_service 2>/dev/null || echo "vmess-grpc")
+
 until [[ $user =~ ^[a-zA-Z0-9_]+$ && ${#user} -ge 1 && ${#user} -le 15 ]]; do
     read -rp "Username : " -e user
 done
@@ -30,11 +35,11 @@ sed -i '/#vmessgrpc$/a\### '"$user $exp"'\
 sed -i '/#vmess-xhttp$/a\### '"$user $exp"'\
 },{"id": "'""$uuid""'"' /etc/xray/config.json
 
-# Generate Enhanced Client Configs - ALL using standard ports 80/443
-vmess_ws_tls="vmess://$(echo '{"v":"2","ps":"'"$user"'-WS-TLS","add":"'"$domain"'","port":"443","id":"'"$uuid"'","aid":"0","net":"ws","path":"/vmess","type":"none","host":"'"$domain"'","tls":"tls"}' | base64 -w 0)"
-vmess_ws_ntls="vmess://$(echo '{"v":"2","ps":"'"$user"'-WS-NTLS","add":"'"$domain"'","port":"80","id":"'"$uuid"'","aid":"0","net":"ws","path":"/vmess","type":"none","host":"'"$domain"'","tls":"none"}' | base64 -w 0)"
-vmess_grpc="vmess://$(echo '{"v":"2","ps":"'"$user"'-GRPC","add":"'"$domain"'","port":"443","id":"'"$uuid"'","aid":"0","net":"grpc","path":"vmess-grpc","type":"none","host":"'"$domain"'","tls":"tls"}' | base64 -w 0)"
-vmess_xhttp="vmess://$(echo '{"v":"2","ps":"'"$user"'-XHTTP","add":"'"$domain"'","port":"443","id":"'"$uuid"'","aid":"0","net":"xhttp","path":"/vmess-xhttp","type":"none","host":"'"$domain"'","tls":"tls"}' | base64 -w 0)"
+# Generate Enhanced Client Configs - Using CUSTOM paths
+vmess_ws_tls="vmess://$(echo '{"v":"2","ps":"'"$user"'-WS-TLS","add":"'"$domain"'","port":"443","id":"'"$uuid"'","aid":"0","net":"ws","path":"'"$VMESS_WS_PATH"'","type":"none","host":"'"$domain"'","tls":"tls"}' | base64 -w 0)"
+vmess_ws_ntls="vmess://$(echo '{"v":"2","ps":"'"$user"'-WS-NTLS","add":"'"$domain"'","port":"80","id":"'"$uuid"'","aid":"0","net":"ws","path":"'"$VMESS_WS_PATH"'","type":"none","host":"'"$domain"'","tls":"none"}' | base64 -w 0)"
+vmess_grpc="vmess://$(echo '{"v":"2","ps":"'"$user"'-GRPC","add":"'"$domain"'","port":"443","id":"'"$uuid"'","aid":"0","net":"grpc","path":"'"$VMESS_GRPC_SERVICE"'","type":"none","host":"'"$domain"'","tls":"tls"}' | base64 -w 0)"
+vmess_xhttp="vmess://$(echo '{"v":"2","ps":"'"$user"'-XHTTP","add":"'"$domain"'","port":"443","id":"'"$uuid"'","aid":"0","net":"xhttp","path":"'"$VMESS_XHTTP_PATH"'","type":"none","host":"'"$domain"'","tls":"tls"}' | base64 -w 0)"
 
 # Create Enhanced Config File
 cat > /home/vps/public_html/vmess-enhanced-${user}.txt << EOF
