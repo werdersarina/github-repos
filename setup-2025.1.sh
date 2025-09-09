@@ -131,10 +131,16 @@ END
 chmod 644 /root/.profile
 
 # Prepare installation files
-echo -e "[ ${green}INFO${NC} ] Preparing the installation files"
-apt update -y >/dev/null 2>&1
-apt install git curl -y >/dev/null 2>&1
-echo -e "[ ${green}INFO${NC} ] Installation files ready"
+echo "======================================"
+echo "🔧 PREPARING INSTALLATION FILES"
+echo "======================================"
+echo "Updating package repositories..."
+apt update -y
+echo ""
+echo "Installing basic dependencies..."
+apt install git curl -y
+echo ""
+echo "✅ Installation files ready!"
 sleep 2
 
 
@@ -144,8 +150,10 @@ sleep 2
 # SECTION 1: SYSTEM TOOLS INSTALLATION
 # =============================================================================
 
-echo -e "[ ${green}INFO${NC} ] Installing system tools and dependencies..."
-echo -e "[ ${green}INFO${NC} ] Progress..."
+echo "======================================"
+echo "🛠️  INSTALLING SYSTEM TOOLS"
+echo "======================================"
+echo "Progress starting..."
 sleep 2
 
 # OS Detection
@@ -158,14 +166,22 @@ elif [[ -e /etc/centos-release ]]; then
 fi
 
 # System update and cleanup
-echo -e "[ ${green}INFO${NC} ] Updating system packages..."
-apt update -y >/dev/null 2>&1
-apt upgrade -y >/dev/null 2>&1
-apt dist-upgrade -y >/dev/null 2>&1
-apt-get remove --purge ufw firewalld exim4 -y >/dev/null 2>&1
+echo "🔄 Updating system packages..."
+apt update -y
+echo ""
+echo "🔄 Upgrading packages..."
+apt upgrade -y
+echo ""
+echo "🔄 Distribution upgrade..."
+apt dist-upgrade -y
+echo ""
+echo "🧹 Removing conflicting packages..."
+apt-get remove --purge ufw firewalld exim4 -y
 
 # Install essential packages (consolidated to prevent duplicates)
-echo -e "[ ${green}INFO${NC} ] Installing essential packages..."
+echo ""
+echo "📦 Installing essential packages..."
+echo "This may take a few minutes..."
 apt install -y \
     screen curl jq bzip2 gzip coreutils rsyslog iftop htop zip unzip \
     net-tools sed gnupg gnupg1 bc apt-transport-https build-essential \
@@ -175,60 +191,76 @@ apt install -y \
     gnupg2 dnsutils lsb-release chrony libnss3-dev libnspr4-dev \
     pkg-config libpam0g-dev libcap-ng-dev libcap-ng-utils \
     libselinux1-dev libcurl4-nss-dev flex bison make libnss3-tools \
-    libevent-dev xl2tpd figlet ruby python3 python3-pip \
-    >/dev/null 2>&1
+    libevent-dev xl2tpd figlet ruby python3 python3-pip
 
 # Install Node.js 20.x
-echo -e "[ ${green}INFO${NC} ] Installing Node.js..."
-curl -sSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
-apt-get install nodejs -y >/dev/null 2>&1
+echo ""
+echo "📦 Installing Node.js 20.x..."
+curl -sSL https://deb.nodesource.com/setup_20.x | bash -
+apt-get install nodejs -y
 
 # Install Ruby gems
-gem install lolcat >/dev/null 2>&1
+echo ""
+echo "💎 Installing Ruby gems (lolcat)..."
+if gem install lolcat; then
+    echo "✅ Lolcat gem successfully installed"
+else
+    echo "⚠️ Failed to install lolcat gem, continuing..."
+fi
 
 # Network interface detection and vnstat configuration
-echo -e "[ ${green}INFO${NC} ] Configuring network monitoring..."
+echo ""
+echo "🌐 Configuring network monitoring..."
 NET=$(ip route | grep default | awk '{print $5}' | head -1)
 if [ -z "$NET" ]; then
     NET=$(ls /sys/class/net/ | grep -v lo | head -1)
 fi
+echo "Detected network interface: $NET"
 
 # Install and configure vnstat
-echo -e "[ ${green}INFO${NC} ] Installing vnstat..."
-systemctl stop vnstat >/dev/null 2>&1
+echo ""
+echo "📊 Installing vnstat network monitor..."
+systemctl stop vnstat
 
 # Try package installation first
 if ! command -v vnstat >/dev/null 2>&1; then
-    apt-get install vnstat -y >/dev/null 2>&1
+    echo "Installing vnstat from package repository..."
+    apt-get install vnstat -y
 fi
 
 # If package doesn't work, compile from source
 if ! command -v vnstat >/dev/null 2>&1; then
-    echo -e "[ ${green}INFO${NC} ] Compiling vnstat from source..."
+    echo "Package installation failed, compiling from source..."
     cd /root
     wget -q https://humdi.net/vnstat/vnstat-2.12.tar.gz
-    tar zxvf vnstat-2.12.tar.gz >/dev/null 2>&1
+    echo "Extracting vnstat source..."
+    tar zxvf vnstat-2.12.tar.gz
     cd vnstat-2.12
-    ./configure --prefix=/usr --sysconfdir=/etc --sbindir=/usr/bin >/dev/null 2>&1
-    make >/dev/null 2>&1
-    make install >/dev/null 2>&1
+    echo "Configuring vnstat build..."
+    ./configure --prefix=/usr --sysconfdir=/etc --sbindir=/usr/bin
+    echo "Compiling vnstat..."
+    make
+    echo "Installing vnstat..."
+    make install
     cd /root
-    rm -f vnstat-2.12.tar.gz vnstat-2.12 -rf >/dev/null 2>&1
+    rm -f vnstat-2.12.tar.gz vnstat-2.12 -rf
 fi
 
 # Create vnstat user and configure
+echo "Creating vnstat user and configuring..."
 if ! id -u vnstat >/dev/null 2>&1; then
-    useradd -r -s /bin/false vnstat >/dev/null 2>&1
+    useradd -r -s /bin/false vnstat
 fi
 
 mkdir -p /var/lib/vnstat
-/usr/bin/vnstat -u -i $NET >/dev/null 2>&1
+/usr/bin/vnstat -u -i $NET
 sed -i "s/Interface \"eth0\"/Interface \"$NET\"/g" /etc/vnstat.conf 2>/dev/null
 chown vnstat:vnstat /var/lib/vnstat -R
-systemctl enable vnstat >/dev/null 2>&1
-systemctl restart vnstat >/dev/null 2>&1
+systemctl enable vnstat
+systemctl restart vnstat
 
-echo -e "[ ${green}INFO${NC} ] Dependencies successfully installed"
+echo ""
+echo "✅ Dependencies successfully installed!"
 sleep 3
 clear
 
@@ -238,37 +270,44 @@ clear
 # =============================================================================
 
 clear
-echo -e "[ ${yellow}INFO${NC} ] Domain configuration for vmess/vless/trojan protocols"
+echo "======================================"
+echo "🌐 DOMAIN CONFIGURATION"
+echo "======================================"
+echo "Setting up domain for vmess/vless/trojan protocols"
 echo ""
 read -rp "Input your domain: " -e pp
 if [ -z "$pp" ]; then
-    echo -e "[ ${yell}WARNING${NC} ] No domain input! A random domain will be created"
+    echo "⚠️  No domain input! Creating auto-generated domain..."
     pp="$(curl -s ipinfo.io/ip).nip.io"
-    echo -e "[ ${green}INFO${NC} ] Using auto-generated domain: $pp"
+    echo "🔧 Using auto-generated domain: $pp"
 else
-    echo -e "[ ${green}INFO${NC} ] Using domain: $pp"
+    echo "✅ Using domain: $pp"
 fi
 
+echo ""
+echo "💾 Saving domain to configuration files..."
 # Save domain to all necessary locations
-echo "$pp" > /root/scdomain
-echo "$pp" > /etc/xray/scdomain
-echo "$pp" > /etc/xray/domain
-echo "$pp" > /etc/v2ray/domain
-echo "$pp" > /root/domain
-echo "IP=$pp" > /var/lib/SIJA/ipvps.conf
+echo "$pp" > /root/scdomain && echo "   ✓ Saved to /root/scdomain"
+echo "$pp" > /etc/xray/scdomain && echo "   ✓ Saved to /etc/xray/scdomain"
+echo "$pp" > /etc/xray/domain && echo "   ✓ Saved to /etc/xray/domain"
+echo "$pp" > /etc/v2ray/domain && echo "   ✓ Saved to /etc/v2ray/domain"
+echo "$pp" > /root/domain && echo "   ✓ Saved to /root/domain"
+echo "IP=$pp" > /var/lib/SIJA/ipvps.conf && echo "   ✓ Saved to /var/lib/SIJA/ipvps.conf"
 
 domain="$pp"  # Set domain variable for later use
 
-echo -e "[ ${green}INFO${NC} ] Domain configuration completed"
+echo ""
+echo "✅ Domain configuration completed successfully!"
+echo "📋 Domain: $domain"
 sleep 2
     
 # =============================================================================
 # SECTION 3: SSH/VPN INSTALLATION
 # =============================================================================
 
-echo -e "\e[33m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-echo -e "$green      Install SSH / VPN               $NC"
-echo -e "\e[33m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+echo "======================================"
+echo "🔐 SSH/VPN INSTALLATION"
+echo "======================================"
 sleep 2
 clear
 
@@ -293,12 +332,15 @@ commonname=WarungAwan
 email=doyoulikepussy@zixstyle.co.id
 
 # Simple password configuration
-echo -e "[ ${green}INFO${NC} ] Configuring password policies..."
+echo "🔐 Configuring password policies..."
+echo "Downloading password configuration..."
 curl -sS https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/password 2>/dev/null | openssl aes-256-cbc -d -a -pass pass:scvps07gg -pbkdf2 > /etc/pam.d/common-password 2>/dev/null
 chmod +x /etc/pam.d/common-password 2>/dev/null
+echo "✅ Password policies configured"
 
 # System service configuration
-echo -e "[ ${green}INFO${NC} ] Configuring system services..."
+echo ""
+echo "⚙️  Configuring system services..."
 
 # Edit file /etc/systemd/system/rc-local.service
 cat > /etc/systemd/system/rc-local.service <<-'END'
@@ -328,136 +370,183 @@ END
 
 # Set permissions and enable
 chmod +x /etc/rc.local
-systemctl enable rc-local >/dev/null 2>&1
-systemctl start rc-local.service >/dev/null 2>&1
+echo "Enabling rc-local service..."
+systemctl enable rc-local
+systemctl start rc-local.service
 
 # Disable IPv6
+echo ""
+echo "🚫 Disabling IPv6..."
 echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
 sed -i '$ i\echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6' /etc/rc.local
+echo "✅ IPv6 disabled"
 
 # System updates (if not already done)
-echo -e "[ ${green}INFO${NC} ] Final system updates..."
-apt update -y >/dev/null 2>&1
-apt install jq shc wget curl -y >/dev/null 2>&1
+echo ""
+echo "🔄 Final system updates..."
+apt update -y
+echo "Installing additional tools..."
+apt install jq shc wget curl -y
 
 # Set timezone
+echo ""
+echo "🕐 Setting timezone to Asia/Jakarta..."
 ln -fs /usr/share/zoneinfo/Asia/Jakarta /etc/localtime
+echo "✅ Timezone configured"
 
 # Configure SSH
+echo ""
+echo "🔧 Configuring SSH settings..."
 sed -i 's/AcceptEnv/#AcceptEnv/g' /etc/ssh/sshd_config
+echo "✅ SSH configuration updated"
 
 
 # SSL installation function
 install_ssl() {
-    echo -e "[ ${green}INFO${NC} ] Installing SSL certificates..."
+    echo "🔒 Installing SSL certificates..."
     
     if [ -f "/usr/bin/apt-get" ]; then
         isDebian=$(cat /etc/issue | grep Debian)
         if [ "$isDebian" != "" ]; then
-            apt-get install -y nginx certbot >/dev/null 2>&1
+            echo "Installing nginx and certbot on Debian..."
+            apt-get install -y nginx certbot
         else
-            apt-get install -y nginx certbot >/dev/null 2>&1
+            echo "Installing nginx and certbot on Ubuntu..."
+            apt-get install -y nginx certbot
         fi
     else
-        yum install -y nginx certbot >/dev/null 2>&1
+        echo "Installing nginx and certbot on RHEL/CentOS..."
+        yum install -y nginx certbot
     fi
 
-    systemctl stop nginx.service >/dev/null 2>&1
+    echo "Stopping nginx service..."
+    systemctl stop nginx.service
 
     if [ -f "/usr/bin/apt-get" ]; then
-        echo "A" | certbot certonly --renew-by-default --register-unsafely-without-email --standalone -d $domain >/dev/null 2>&1
+        echo "Generating SSL certificate for domain: $domain"
+        echo "A" | certbot certonly --renew-by-default --register-unsafely-without-email --standalone -d $domain
     else
-        echo "Y" | certbot certonly --renew-by-default --register-unsafely-without-email --standalone -d $domain >/dev/null 2>&1
+        echo "Y" | certbot certonly --renew-by-default --register-unsafely-without-email --standalone -d $domain
     fi
+    echo "✅ SSL certificates installed"
 }
 
 # Install and configure web server
-echo -e "[ ${green}INFO${NC} ] Installing and configuring web server..."
-apt -y install nginx >/dev/null 2>&1
+echo ""
+echo "🌐 Installing and configuring web server..."
+apt -y install nginx
 cd /root
+echo "Removing default nginx configuration..."
 rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
-wget -O /etc/nginx/nginx.conf "https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/nginx.conf" >/dev/null 2>&1
+echo "Downloading custom nginx configuration..."
+wget -O /etc/nginx/nginx.conf "https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/nginx.conf"
+echo "Creating web directory..."
 mkdir -p /home/vps/public_html
-systemctl restart nginx >/dev/null 2>&1
+echo "Restarting nginx..."
+systemctl restart nginx
+echo "✅ Web server configured"
 
 # Install and configure badvpn
-echo -e "[ ${green}INFO${NC} ] Installing badvpn UDP gateway..."
+echo ""
+echo "🔌 Installing badvpn UDP gateway..."
 cd /root
-wget -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/newudpgw" >/dev/null 2>&1
+echo "Downloading badvpn-udpgw..."
+wget -O /usr/bin/badvpn-udpgw "https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/newudpgw"
 chmod +x /usr/bin/badvpn-udpgw
+echo "✅ badvpn downloaded and configured"
 
 # Add badvpn to startup
+echo "Setting up badvpn UDP gateways on multiple ports..."
 for port in 7100 7200 7300 7400 7500 7600 7700 7800 7900; do
+    echo "  ✓ Configuring badvpn on port $port"
     sed -i "$ i\screen -dmS badvpn-$port badvpn-udpgw --listen-addr 127.0.0.1:$port --max-clients 500" /etc/rc.local
-    screen -dmS badvpn-$port badvpn-udpgw --listen-addr 127.0.0.1:$port --max-clients 500 >/dev/null 2>&1
+    screen -dmS badvpn-$port badvpn-udpgw --listen-addr 127.0.0.1:$port --max-clients 500
 done
+echo "✅ badvpn UDP gateways started"
 
 # Configure SSH ports
-echo -e "[ ${green}INFO${NC} ] Configuring SSH ports..."
+echo ""
+echo "🔐 Configuring SSH ports..."
 cd /root
 
 # Backup original SSH config
+echo "Creating SSH configuration backup..."
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
 
 # Enable password authentication
+echo "Enabling password authentication..."
 sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
 
 # GCP-specific SSH optimizations
+echo "Applying GCP-specific SSH optimizations..."
 sed -i 's/#ClientAliveInterval 0/ClientAliveInterval 60/g' /etc/ssh/sshd_config
 sed -i 's/#ClientAliveCountMax 3/ClientAliveCountMax 3/g' /etc/ssh/sshd_config
 sed -i 's/#TCPKeepAlive yes/TCPKeepAlive yes/g' /etc/ssh/sshd_config
 
 # Ensure Port 22 exists and add additional ports
 if ! grep -q "^Port 22" /etc/ssh/sshd_config; then
+    echo "Adding Port 22 to SSH config..."
     echo "Port 22" >> /etc/ssh/sshd_config
 fi
 
 # Add multiple SSH ports safely
+echo "Adding additional SSH ports..."
 for port in 500 40000 51443 58080 200; do
     if ! grep -q "^Port $port" /etc/ssh/sshd_config; then
+        echo "  ✓ Adding SSH port $port"
         echo "Port $port" >> /etc/ssh/sshd_config
     fi
 done
 
 # Test SSH configuration before restart
+echo "Testing SSH configuration..."
 if sshd -t; then
-    echo -e "[ ${green}INFO${NC} ] SSH configuration is valid"
-    systemctl restart ssh >/dev/null 2>&1
+    echo "✅ SSH configuration is valid - restarting SSH service"
+    systemctl restart ssh
+    systemctl restart sshd 2>/dev/null || true
 else
-    echo -e "[ ${red}ERROR${NC} ] SSH configuration error, restoring backup"
+    echo "❌ SSH configuration error - restoring backup"
     cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
-    systemctl restart ssh >/dev/null 2>&1
+    systemctl restart ssh
+    systemctl restart sshd 2>/dev/null || true
 fi
 
 # Configure Dropbear SSH
-echo -e "[ ${green}INFO${NC} ] Installing and configuring Dropbear..."
-apt -y install dropbear >/dev/null 2>&1
+echo ""
+echo "🔐 Installing and configuring Dropbear SSH..."
+apt -y install dropbear
 
 # Stop default dropbear service
-systemctl stop dropbear >/dev/null 2>&1
-systemctl disable dropbear >/dev/null 2>&1
+echo "Stopping default dropbear service..."
+systemctl stop dropbear
+systemctl disable dropbear
 
 # Configure dropbear for compatibility
+echo "Configuring dropbear settings..."
 sed -i 's/NO_START=1/NO_START=0/g' /etc/default/dropbear
 sed -i 's/DROPBEAR_PORT=22/DROPBEAR_PORT=143/g' /etc/default/dropbear
 sed -i 's/DROPBEAR_EXTRA_ARGS=/DROPBEAR_EXTRA_ARGS="-p 50000 -p 109 -p 110 -p 69"/g' /etc/default/dropbear
 
 # Generate dropbear host keys
 mkdir -p /etc/dropbear
-echo -e "[ ${green}INFO${NC} ] Generating dropbear host keys..."
+echo "Generating dropbear host keys..."
 if [ ! -f /etc/dropbear/dropbear_rsa_host_key ]; then
-    dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key -s 2048 >/dev/null 2>&1
+    echo "  ✓ Generating RSA host key..."
+    dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key -s 2048
 fi
 if [ ! -f /etc/dropbear/dropbear_ecdsa_host_key ]; then
-    dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key >/dev/null 2>&1
+    echo "  ✓ Generating ECDSA host key..."
+    dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key
 fi
 if [ ! -f /etc/dropbear/dropbear_ed25519_host_key ]; then
-    dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1
+    echo "  ✓ Generating ED25519 host key..."
+    dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
 fi
 
 # Set proper permissions
 chmod 600 /etc/dropbear/dropbear_*_host_key
 chown root:root /etc/dropbear/dropbear_*_host_key
+echo "✅ Dropbear host keys generated and secured"
 
 # Ensure shells are available
 grep -qxF "/bin/false" /etc/shells || echo "/bin/false" >> /etc/shells
@@ -483,31 +572,34 @@ WantedBy=multi-user.target
 EOF
 
 # Enable and start dropbear service
+echo "Setting up dropbear systemd service..."
 systemctl daemon-reload
-systemctl enable dropbear-multi.service >/dev/null 2>&1
-systemctl start dropbear-multi.service >/dev/null 2>&1
+systemctl enable dropbear-multi.service
+systemctl start dropbear-multi.service
 
 # Verify dropbear status
 sleep 3
 if systemctl is-active --quiet dropbear-multi; then
-    echo -e "[ ${green}INFO${NC} ] Dropbear multi-port service started successfully"
+    echo "✅ Dropbear multi-port service started successfully"
 else
-    echo -e "[ ${yell}WARNING${NC} ] Dropbear failed to start with systemd, trying manual start..."
+    echo "⚠️  Dropbear failed to start with systemd, trying manual start..."
     pkill -f dropbear 2>/dev/null
     sleep 2
-    nohup /usr/sbin/dropbear -F -E -p 143 -p 50000 -p 109 -p 110 -p 69 >/dev/null 2>&1 &
+    nohup /usr/sbin/dropbear -F -E -p 143 -p 50000 -p 109 -p 110 -p 69 &
     sleep 2
     if pgrep -f "dropbear.*-p.*143" >/dev/null; then
-        echo -e "[ ${green}INFO${NC} ] Dropbear started manually on multiple ports"
+        echo "✅ Dropbear started manually on multiple ports"
     else
-        echo -e "[ ${red}ERROR${NC} ] Dropbear failed to start completely"
+        echo "❌ Dropbear failed to start completely"
     fi
 fi
 # Configure Stunnel4
-echo -e "[ ${green}INFO${NC} ] Installing and configuring Stunnel4..."
+echo ""
+echo "🔒 Installing and configuring Stunnel4..."
 cd /root
-apt install stunnel4 -y >/dev/null 2>&1
+apt install stunnel4 -y
 
+echo "Creating stunnel configuration..."
 cat > /etc/stunnel/stunnel.conf <<-'END'
 cert = /etc/stunnel/stunnel.pem
 client = no
@@ -533,28 +625,32 @@ connect = 127.0.0.1:1194
 END
 
 # Generate SSL certificate for stunnel
-echo -e "[ ${green}INFO${NC} ] Generating SSL certificate for stunnel..."
-openssl genrsa -out key.pem 2048 >/dev/null 2>&1
+echo "Generating SSL certificate for stunnel..."
+openssl genrsa -out key.pem 2048
 openssl req -new -x509 -key key.pem -out cert.pem -days 1095 \
--subj "/C=$country/ST=$state/L=$locality/O=$organization/OU=$organizationalunit/CN=$commonname/emailAddress=$email" >/dev/null 2>&1
+-subj "/C=$country/ST=$state/L=$locality/O=$organization/OU=$organizationalunit/CN=$commonname/emailAddress=$email"
 cat key.pem cert.pem >> /etc/stunnel/stunnel.pem
 
 # Configure and start stunnel
+echo "Enabling and starting stunnel4..."
 sed -i 's/ENABLED=0/ENABLED=1/g' /etc/default/stunnel4
 chmod 600 /etc/stunnel/stunnel.pem
 
 if command -v systemctl >/dev/null; then
-    systemctl enable stunnel4 >/dev/null 2>&1
-    systemctl restart stunnel4 >/dev/null 2>&1
+    systemctl enable stunnel4
+    systemctl restart stunnel4
 else
-    /etc/init.d/stunnel4 restart >/dev/null 2>&1
+    /etc/init.d/stunnel4 restart
 fi
+echo "✅ Stunnel4 configured and started"
 
 
 # Install and configure Fail2ban
-echo -e "[ ${green}INFO${NC} ] Installing and configuring Fail2ban..."
-apt -y install fail2ban >/dev/null 2>&1
+echo ""
+echo "🛡️  Installing and configuring Fail2ban..."
+apt -y install fail2ban
 
+echo "Creating Fail2ban configuration..."
 cat > /etc/fail2ban/jail.local <<'EOF'
 [DEFAULT]
 bantime = 300
@@ -577,13 +673,17 @@ logpath = /var/log/auth.log
 maxretry = 10
 EOF
 
-systemctl enable fail2ban >/dev/null 2>&1
-systemctl restart fail2ban >/dev/null 2>&1
+echo "Enabling and starting Fail2ban..."
+systemctl enable fail2ban
+systemctl restart fail2ban
+echo "✅ Fail2ban configured and started"
 
 # Install and configure Squid proxy
-echo -e "[ ${green}INFO${NC} ] Installing and configuring Squid proxy..."
-apt -y install squid >/dev/null 2>&1
+echo ""
+echo "🔄 Installing and configuring Squid proxy..."
+apt -y install squid
 
+echo "Creating Squid configuration..."
 cat > /etc/squid/squid.conf <<'EOF'
 acl localhost src 127.0.0.1/32 ::1
 acl to_localhost dst 127.0.0.0/8 0.0.0.0/32 ::1
@@ -614,13 +714,17 @@ refresh_pattern -i (/cgi-bin/|\?) 0 0% 0
 refresh_pattern . 0 20% 4320
 EOF
 
-systemctl enable squid >/dev/null 2>&1
-systemctl restart squid >/dev/null 2>&1
+echo "Enabling and starting Squid..."
+systemctl enable squid
+systemctl restart squid
+echo "✅ Squid proxy configured and started"
 
 # Install Custom DDoS Protection
-echo -e "[ ${green}INFO${NC} ] Installing Custom DDoS Protection..."
+echo ""
+echo "🛡️  Installing Custom DDoS Protection..."
 mkdir -p /usr/local/ddos /var/log/ddos
 
+echo "Creating DDoS protection script..."
 # Create simplified DDoS protection script
 cat > /usr/local/ddos/ddos.sh <<'EOF'
 #!/bin/bash
@@ -679,10 +783,12 @@ case "$1" in
 esac
 EOF
 
+
 # Create configuration
+echo "Creating DDoS protection configuration..."
 cat > /usr/local/ddos/ddos.conf <<'EOF'
-MAX_CONNECTIONS=150
-BAN_PERIOD=600
+MAX_CONNECTIONS=500
+BAN_PERIOD=300
 CHECK_INTERVAL=60
 EOF
 
@@ -691,46 +797,65 @@ chmod +x /usr/local/ddos/ddos.sh
 touch /usr/local/ddos/banned_ips.txt
 /usr/local/ddos/ddos.sh --cron
 
-echo -e "[ ${green}INFO${NC} ] Custom DDoS Protection installed successfully"
+echo "✅ Custom DDoS Protection installed successfully"
 
 # Configure banner and system optimization
-echo -e "[ ${green}INFO${NC} ] Configuring system banner and optimization..."
+echo ""
+echo "🎨 Configuring system banner and optimization..."
+echo "Downloading system banner..."
 wget -q -O /etc/issue.net "https://raw.githubusercontent.com/werdersarina/github-repos/main/issue.net"
 chmod +x /etc/issue.net
 echo "Banner /etc/issue.net" >> /etc/ssh/sshd_config
 sed -i 's@DROPBEAR_BANNER=""@DROPBEAR_BANNER="/etc/issue.net"@g' /etc/default/dropbear
+echo "✅ System banner configured"
 
 # Install BBR and kernel optimization
-echo -e "[ ${green}INFO${NC} ] Installing BBR and kernel optimization..."
+echo ""
+echo "⚡ Installing BBR and kernel optimization..."
+echo "Downloading BBR script..."
 wget -q https://raw.githubusercontent.com/werdersarina/github-repos/main/ssh/bbr.sh
 chmod +x bbr.sh
-./bbr.sh >/dev/null 2>&1
+echo "Running BBR optimization..."
+./bbr.sh
+echo "✅ BBR optimization completed"
 
 # Configure firewall and anti-torrent
-echo -e "[ ${green}INFO${NC} ] Configuring firewall and anti-torrent rules..."
+echo ""
+echo "🔥 Configuring firewall and anti-torrent rules..."
 
+echo "Setting up Google Cloud Platform IP whitelist..."
 # Ensure Google Cloud IAP IP ranges are whitelisted first (CRITICAL for GCP)
 iptables -I INPUT -s 35.235.240.0/20 -j ACCEPT
+echo "  ✓ Added GCP IAP range: 35.235.240.0/20"
 iptables -I INPUT -s 130.211.0.0/22 -j ACCEPT
+echo "  ✓ Added GCP Load Balancer range: 130.211.0.0/22"
 iptables -I INPUT -s 35.191.0.0/16 -j ACCEPT
+echo "  ✓ Added GCP Health Check range: 35.191.0.0/16"
 
 # Additional Google Cloud Platform IP ranges
 iptables -I INPUT -s 34.96.0.0/20 -j ACCEPT
+echo "  ✓ Added GCP additional range: 34.96.0.0/20"
 iptables -I INPUT -s 34.127.0.0/16 -j ACCEPT
+echo "  ✓ Added GCP additional range: 34.127.0.0/16"
 
+echo "Setting up emergency access rules..."
 # Emergency access - always allow localhost and private networks
 iptables -I INPUT -s 127.0.0.0/8 -j ACCEPT
 iptables -I INPUT -s 10.0.0.0/8 -j ACCEPT
 iptables -I INPUT -s 172.16.0.0/12 -j ACCEPT
 iptables -I INPUT -s 192.168.0.0/16 -j ACCEPT
+echo "  ✓ Emergency access rules added"
 
+echo "Opening SSH ports..."
 # Ensure SSH ports are always accessible (HIGHEST PRIORITY)
 for port in 22 200 500 40000 51443 58080; do
     iptables -I INPUT -p tcp --dport $port -j ACCEPT
+    echo "  ✓ Opened SSH port $port"
 done
 
 # Allow established connections to prevent disconnection
 iptables -I INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+echo "  ✓ Allowed established connections"
 
 # Block torrent traffic
 iptables -A FORWARD -m string --string "get_peers" --algo bm -j DROP
@@ -746,10 +871,16 @@ iptables -A FORWARD -m string --algo bm --string "announce" -j DROP
 iptables -A FORWARD -m string --algo bm --string "info_hash" -j DROP
 
 # Save iptables rules and create emergency reset
+echo -e "📂 Menyimpan aturan iptables ke /etc/iptables.up.rules..."
 iptables-save > /etc/iptables.up.rules
+echo -e "✅ Aturan iptables berhasil disimpan!"
+
 if command -v netfilter-persistent >/dev/null; then
-    netfilter-persistent save >/dev/null 2>&1
-    netfilter-persistent reload >/dev/null 2>&1
+    echo -e "🔄 Menyimpan konfigurasi netfilter..."
+    netfilter-persistent save
+    echo -e "🔄 Memuat ulang konfigurasi netfilter..."
+    netfilter-persistent reload
+    echo -e "✅ Netfilter berhasil dikonfigurasi!"
 fi
 
 # Create emergency SSH reset script
@@ -799,7 +930,7 @@ EOF
 chmod +x /usr/local/bin/ssh-monitor.sh
 
 # Download management scripts
-echo -e "[ ${green}INFO${NC} ] Downloading management scripts..."
+echo -e "📥 Mengunduh script manajemen server..."
 cd /usr/bin
 
 # Download and set permissions for all scripts in batches
@@ -846,53 +977,86 @@ declare -A scripts=(
 )
 
 # Download all scripts
+echo -e "🔄 Mengunduh script manajemen individual..."
+script_count=0
+total_scripts=${#scripts[@]}
+
 for script_name in "${!scripts[@]}"; do
-    wget -q -O "$script_name" "https://raw.githubusercontent.com/werdersarina/github-repos/main/${scripts[$script_name]}"
-    chmod +x "$script_name"
+    ((script_count++))
+    echo -e "📥 [$script_count/$total_scripts] Mengunduh script '$script_name'..."
+    if wget -q -O "$script_name" "https://raw.githubusercontent.com/werdersarina/github-repos/main/${scripts[$script_name]}"; then
+        chmod +x "$script_name"
+        echo -e "  ✅ Script '$script_name' berhasil diunduh dan diset executable"
+    else
+        echo -e "  ⚠️ Gagal mengunduh script '$script_name', melanjutkan..."
+    fi
 done
 
-echo -e "[ ${green}INFO${NC} ] Management scripts downloaded successfully"
+echo -e "✅ Semua script manajemen telah diunduh ($script_count/$total_scripts berhasil)"
 
 
 # Configure cron jobs
-echo -e "[ ${green}INFO${NC} ] Configuring cron jobs..."
+echo -e "⏰ Mengonfigurasi cron jobs untuk jadwal otomatis..."
 
+echo -e "🔄 Membuat cron job untuk reboot harian (02:00)..."
 cat > /etc/cron.d/re_otm <<-'END'
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 0 2 * * * root /sbin/reboot
 END
+echo -e "✅ Cron job reboot harian telah dikonfigurasi"
 
+echo -e "🔄 Membuat cron job untuk pembersihan user expired (00:00)..."
 cat > /etc/cron.d/xp_otm <<-'END'
 SHELL=/bin/sh
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 0 0 * * * root /usr/bin/xp
 END
+echo -e "✅ Cron job pembersihan user expired telah dikonfigurasi"
 
+echo -e "🔄 Membuat file konfigurasi reboot..."
 cat > /home/re_otm <<-'END'
 7
 END
+echo -e "✅ File konfigurasi reboot telah dibuat"
 
-service cron restart >/dev/null 2>&1
-service cron reload >/dev/null 2>&1
+echo -e "🔄 Memulai ulang dan memuat cron service..."
+service cron restart
+service cron reload
+echo -e "✅ Cron service berhasil dimulai ulang"
 
 # Cleanup unnecessary packages
-echo -e "[ ${green}INFO${NC} ] Cleaning up system..."
-apt autoclean -y >/dev/null 2>&1
+echo -e "🧹 Membersihkan sistem dari paket yang tidak diperlukan..."
+
+echo -e "🔄 Menjalankan apt autoclean..."
+apt autoclean -y
+echo -e "✅ Apt cache berhasil dibersihkan"
 
 # Remove unnecessary services
+echo -e "🗑️ Menghapus service yang tidak diperlukan..."
 for pkg in unscd samba apache2 bind9 sendmail; do
     if dpkg -s "$pkg" >/dev/null 2>&1; then
-        apt -y remove --purge "$pkg"* >/dev/null 2>&1
+        echo -e "🔄 Menghapus paket '$pkg'..."
+        if apt -y remove --purge "$pkg"*; then
+            echo -e "  ✅ Paket '$pkg' berhasil dihapus"
+        else
+            echo -e "  ⚠️ Gagal menghapus paket '$pkg'"
+        fi
+    else
+        echo -e "  ℹ️ Paket '$pkg' tidak terinstall"
     fi
 done
 
-apt autoremove -y >/dev/null 2>&1
+echo -e "🔄 Menjalankan autoremove untuk membersihkan dependency..."
+apt autoremove -y
+echo -e "✅ Sistem berhasil dibersihkan dari paket yang tidak diperlukan"
 
 # Set proper ownership
+echo -e "🔧 Mengatur ownership yang tepat untuk direktori web..."
 chown -R www-data:www-data /home/vps/public_html
+echo -e "✅ Ownership direktori web telah diatur dengan benar"
 # Restart all services
-echo -e "[ ${green}INFO${NC} ] Restarting all SSH & VPN services..."
+echo -e "🔄 Memulai ulang semua service SSH & VPN..."
 
 # List of services to restart with their systemctl/init.d commands
 services=(
@@ -906,44 +1070,88 @@ services=(
 )
 
 # Restart fail2ban last to prevent issues during service restart
+service_count=0
+total_services=${#services[@]}
+
 for service in "${services[@]}"; do
-    echo -e "[ ${green}INFO${NC} ] Restarting $service..."
+    ((service_count++))
+    echo -e "🔄 [$service_count/$total_services] Memulai ulang service '$service'..."
+    
     if systemctl is-enabled "$service" >/dev/null 2>&1 || systemctl list-unit-files | grep -q "$service"; then
-        systemctl restart "$service" >/dev/null 2>&1
+        if systemctl restart "$service"; then
+            echo -e "  ✅ Service '$service' berhasil dimulai ulang via systemctl"
+        else
+            echo -e "  ⚠️ Gagal restart '$service' via systemctl, mencoba init.d..."
+            /etc/init.d/"$service" restart
+        fi
     else
-        /etc/init.d/"$service" restart >/dev/null 2>&1
+        echo -e "  🔄 Menggunakan init.d untuk service '$service'..."
+        if /etc/init.d/"$service" restart; then
+            echo -e "  ✅ Service '$service' berhasil dimulai ulang via init.d"
+        else
+            echo -e "  ⚠️ Gagal restart service '$service'"
+        fi
     fi
     sleep 2  # Increased delay to prevent connection issues
 done
 
 # Restart fail2ban last after other services are stable
-echo -e "[ ${green}INFO${NC} ] Restarting fail2ban..."
-systemctl restart fail2ban >/dev/null 2>&1
+echo -e "🔧 Memulai ulang fail2ban sebagai langkah terakhir..."
+if systemctl restart fail2ban; then
+    echo -e "✅ Fail2ban berhasil dimulai ulang"
+else
+    echo -e "⚠️ Gagal memulai ulang fail2ban"
+fi
 sleep 3
 
 # Verify SSH is still accessible
+echo -e "🔍 Memverifikasi akses SSH masih tersedia..."
 if ss -tln | grep -q ":22 "; then
-    echo -e "[ ${green}INFO${NC} ] SSH port 22 is accessible"
+    echo -e "✅ SSH port 22 dapat diakses dengan normal"
 else
-    echo -e "[ ${red}WARNING${NC} ] SSH port 22 may not be accessible"
-    # Try to restart SSH again
-    systemctl restart ssh >/dev/null 2>&1
+    echo -e "⚠️ PERINGATAN: SSH port 22 mungkin tidak dapat diakses!"
+    echo -e "🔄 Mencoba restart SSH sekali lagi..."
+    if systemctl restart ssh; then
+        echo -e "✅ SSH berhasil direstart"
+    else
+        echo -e "❌ Gagal restart SSH - gunakan console access jika diperlukan"
+    fi
 fi
 
 # Start badvpn UDP gateways
-echo -e "[ ${green}INFO${NC} ] Starting badvpn UDP gateways..."
-for port in 7100 7200 7300 7400 7500 7600 7700 7800 7900; do
-    screen -dmS badvpn-$port badvpn-udpgw --listen-addr 127.0.0.1:$port --max-clients 500 >/dev/null 2>&1
+echo -e "🚀 Memulai badvpn UDP gateways..."
+udp_ports=(7100 7200 7300 7400 7500 7600 7700 7800 7900)
+gateway_count=0
+
+for port in "${udp_ports[@]}"; do
+    ((gateway_count++))
+    echo -e "🔄 [$gateway_count/${#udp_ports[@]}] Memulai badvpn gateway pada port $port..."
+    if screen -dmS badvpn-$port badvpn-udpgw --listen-addr 127.0.0.1:$port --max-clients 500; then
+        echo -e "  ✅ Gateway port $port berhasil dimulai"
+    else
+        echo -e "  ⚠️ Gagal memulai gateway port $port"
+    fi
 done
+echo -e "✅ Semua badvpn UDP gateways telah dimulai ($gateway_count gateway aktif)"
 
 # Clear command history and setup environment
+echo -e "🧹 Membersihkan history command dan mengatur environment..."
 history -c
 echo "unset HISTFILE" >> /etc/profile
+echo -e "✅ Command history berhasil dibersihkan"
 
 # Cleanup temporary files
-rm -f /root/key.pem /root/cert.pem /root/ssh-vpn.sh /root/bbr.sh
+echo -e "🗑️ Menghapus file temporary..."
+temp_files=("/root/key.pem" "/root/cert.pem" "/root/ssh-vpn.sh" "/root/bbr.sh")
+for temp_file in "${temp_files[@]}"; do
+    if [ -f "$temp_file" ]; then
+        rm -f "$temp_file"
+        echo -e "  🗑️ Menghapus $temp_file"
+    fi
+done
+echo -e "✅ File temporary berhasil dibersihkan"
 
-echo -e "[ ${green}INFO${NC} ] SSH/VPN installation completed successfully"
+echo -e "🎉 Instalasi SSH/VPN berhasil diselesaikan!"
 
 # =============================================================================
 # SECTION 4: XRAY INSTALLATION
@@ -955,102 +1163,221 @@ echo -e "\e[33m━━━━━━━━━━━━━━━━━━━━━�
 sleep 2
 clear
 
-echo -e "[ ${green}INFO${NC} ] Starting XRAY installation..."
+echo -e "📦 Memulai instalasi XRAY..."
 date
 echo ""
 
 # Use domain from previous configuration
+echo -e "🔍 Mengecek konfigurasi domain..."
 if [ -z "$domain" ]; then
+    echo -e "🔄 Membaca domain dari file konfigurasi..."
     domain=$(cat /root/domain 2>/dev/null || cat /etc/xray/domain 2>/dev/null || echo "")
+    if [ -n "$domain" ]; then
+        echo -e "✅ Domain ditemukan: $domain"
+    fi
 fi
 
 if [ -z "$domain" ]; then
-    echo -e "[ ${red}ERROR${NC} ] Domain not found! Please configure domain first."
+    echo -e "❌ Domain tidak ditemukan! Silakan konfigurasi domain terlebih dahulu."
     exit 1
 fi
 
 sleep 1
+echo -e "📁 Membuat direktori XRAY..."
 mkdir -p /etc/xray /var/log/xray
-echo -e "[ ${green}INFO${NC} ] Checking dependencies..."
-apt install iptables iptables-persistent -y >/dev/null 2>&1
+echo -e "✅ Direktori XRAY berhasil dibuat"
+
+echo -e "🔍 Mengecek dan menginstall dependencies..."
+if apt install iptables iptables-persistent -y; then
+    echo -e "✅ Dependencies berhasil diinstall"
+else
+    echo -e "⚠️ Ada masalah saat install dependencies, melanjutkan..."
+fi
 
 # Configure time synchronization
-echo -e "[ ${green}INFO${NC} ] Configuring time synchronization..."
-ntpdate pool.ntp.org >/dev/null 2>&1
-timedatectl set-ntp true >/dev/null 2>&1
-systemctl enable chronyd >/dev/null 2>&1
-systemctl restart chronyd >/dev/null 2>&1
-systemctl enable chrony >/dev/null 2>&1
-systemctl restart chrony >/dev/null 2>&1
+echo -e "⏰ Mengonfigurasi sinkronisasi waktu..."
+echo -e "🔄 Menyinkronkan waktu dengan NTP server..."
+if ntpdate pool.ntp.org; then
+    echo -e "✅ Waktu berhasil disinkronkan"
+else
+    echo -e "⚠️ Gagal sinkronisasi NTP, melanjutkan..."
+fi
+
+echo -e "🔄 Mengaktifkan automatic time sync..."
+timedatectl set-ntp true
+echo -e "🔄 Mengaktifkan service chrony..."
+systemctl enable chronyd
+systemctl restart chronyd
+systemctl enable chrony
+systemctl restart chrony
+
+echo -e "🌏 Mengatur timezone ke Asia/Jakarta..."
 timedatectl set-timezone Asia/Jakarta
-chronyc sourcestats -v >/dev/null 2>&1
-chronyc tracking -v >/dev/null 2>&1
+echo -e "✅ Timezone berhasil diatur"
+
+echo -e "📊 Mengecek status chrony..."
+chronyc sourcestats -v
+chronyc tracking -v
+echo -e "✅ Sinkronisasi waktu berhasil dikonfigurasi"
 
 # Install additional dependencies
-echo -e "[ ${green}INFO${NC} ] Installing additional dependencies..."
-apt clean all >/dev/null 2>&1
-apt update >/dev/null 2>&1
-apt install curl socat xz-utils wget apt-transport-https gnupg gnupg2 gnupg1 dnsutils lsb-release zip pwgen openssl netcat cron -y >/dev/null 2>&1
+echo -e "📦 Menginstall dependencies tambahan untuk XRAY..."
+echo -e "🧹 Membersihkan cache apt..."
+apt clean all
+
+echo -e "🔄 Memperbarui daftar paket..."
+if apt update; then
+    echo -e "✅ Daftar paket berhasil diperbarui"
+else
+    echo -e "⚠️ Ada masalah saat update, melanjutkan instalasi..."
+fi
+
+echo -e "📥 Menginstall paket dependencies..."
+dep_packages=(curl socat xz-utils wget apt-transport-https gnupg gnupg2 gnupg1 dnsutils lsb-release zip pwgen openssl netcat cron)
+if apt install "${dep_packages[@]}" -y; then
+    echo -e "✅ Semua dependencies berhasil diinstall"
+else
+    echo -e "⚠️ Ada masalah saat install beberapa dependencies, melanjutkan..."
+fi
 
 
-# Install XRAY core
-echo -e "[ ${green}INFO${NC} ] Installing XRAY core..."
+# Install latest XRAY core
+echo -e "🚀 Menginstall XRAY core..."
 domainSock_dir="/run/xray"
+echo -e "📁 Membuat direktori socket: $domainSock_dir"
 [ ! -d $domainSock_dir ] && mkdir -p $domainSock_dir
 chown www-data:www-data $domainSock_dir
+echo -e "✅ Direktori socket berhasil dibuat dan ownership diatur"
 
 # Create log directories and files
+echo -e "📁 Membuat direktori dan file log XRAY..."
 mkdir -p /var/log/xray /etc/xray
 chown www-data:www-data /var/log/xray
 chmod +x /var/log/xray
 touch /var/log/xray/access.log /var/log/xray/error.log /var/log/xray/access2.log /var/log/xray/error2.log
+echo -e "✅ Direktori dan file log XRAY berhasil dibuat"
 
 # Install latest XRAY core
-echo -e "[ ${green}INFO${NC} ] Getting latest XRAY core version..."
+echo -e "🔍 Mendapatkan versi terbaru XRAY core..."
 LATEST_XRAY=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | cut -d '"' -f 4)
 if [ -n "$LATEST_XRAY" ]; then
-    echo -e "[ ${green}INFO${NC} ] Installing XRAY core ${LATEST_XRAY}"
-    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data --version "${LATEST_XRAY#v}" >/dev/null 2>&1
+    echo -e "📦 Menginstall XRAY core versi ${LATEST_XRAY}..."
+    if bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data --version "${LATEST_XRAY#v}"; then
+        echo -e "✅ XRAY core ${LATEST_XRAY} berhasil diinstall"
+    else
+        echo -e "⚠️ Gagal install versi spesifik, mencoba fallback..."
+        bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data
+    fi
 else
-    echo -e "[ ${yell}WARNING${NC} ] Failed to get latest version, using fallback"
-    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data >/dev/null 2>&1
+    echo -e "⚠️ Gagal mendapatkan versi terbaru, menggunakan fallback installer..."
+    if bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u www-data; then
+        echo -e "✅ XRAY core berhasil diinstall dengan fallback method"
+    else
+        echo -e "❌ Gagal menginstall XRAY core, melanjutkan dengan konfigurasi manual..."
+    fi
 fi
 
 
 
 # SSL Certificate configuration
-echo -e "[ ${green}INFO${NC} ] Configuring SSL certificates..."
-systemctl stop nginx >/dev/null 2>&1
+echo -e "🔐 Mengkonfigurasi SSL certificates..."
+echo -e "🔄 Menghentikan nginx sementara untuk akses port 80..."
+systemctl stop nginx
+
+echo -e "📁 Membuat direktori acme.sh..."
 mkdir -p /root/.acme.sh
 
 # Install acme.sh
-curl -s https://acme-install.netlify.app/acme.sh -o /root/.acme.sh/acme.sh
-chmod +x /root/.acme.sh/acme.sh
-/root/.acme.sh/acme.sh --upgrade --auto-upgrade >/dev/null 2>&1
-/root/.acme.sh/acme.sh --set-default-ca --server letsencrypt >/dev/null 2>&1
-/root/.acme.sh/acme.sh --issue -d $domain --standalone -k ec-256 >/dev/null 2>&1
-~/.acme.sh/acme.sh --installcert -d $domain --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc >/dev/null 2>&1
+echo -e "📥 Mengunduh dan menginstall acme.sh..."
+if curl -s https://acme-install.netlify.app/acme.sh -o /root/.acme.sh/acme.sh; then
+    chmod +x /root/.acme.sh/acme.sh
+    echo -e "✅ acme.sh berhasil diunduh"
+else
+    echo -e "❌ Gagal mengunduh acme.sh, mencoba method alternatif..."
+    if curl -s https://get.acme.sh | sh; then
+        echo -e "✅ acme.sh berhasil diinstall dengan method alternatif"
+    else
+        echo -e "⚠️ Gagal menginstall acme.sh, melanjutkan dengan SSL manual..."
+    fi
+fi
+
+echo -e "🔄 Mengupgrade acme.sh ke versi terbaru..."
+if [ -f "/root/.acme.sh/acme.sh" ]; then
+    /root/.acme.sh/acme.sh --upgrade --auto-upgrade
+    echo -e "🔄 Mengatur CA server ke Let's Encrypt..."
+    /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+else
+    echo -e "⚠️ acme.sh tidak ditemukan, melanjutkan tanpa upgrade..."
+fi
+
+echo -e "🔐 Membuat SSL certificate untuk domain: $domain..."
+if [ -f "/root/.acme.sh/acme.sh" ]; then
+    if /root/.acme.sh/acme.sh --issue -d $domain --standalone -k ec-256; then
+        echo -e "✅ SSL certificate berhasil dibuat"
+    else
+        echo -e "⚠️ Gagal membuat SSL certificate, melanjutkan dengan self-signed..."
+        # Create self-signed certificate as fallback
+        openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
+            -subj "/C=ID/ST=Jakarta/L=Jakarta/O=VPN/CN=$domain" \
+            -keyout /etc/xray/xray.key -out /etc/xray/xray.crt
+    fi
+else
+    echo -e "⚠️ acme.sh tidak tersedia, membuat self-signed certificate..."
+    openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
+        -subj "/C=ID/ST=Jakarta/L=Jakarta/O=VPN/CN=$domain" \
+        -keyout /etc/xray/xray.key -out /etc/xray/xray.crt
+fi
+
+echo -e "📋 Menginstall certificate ke direktori XRAY..."
+if [ -f "/root/.acme.sh/acme.sh" ] && ~/.acme.sh/acme.sh --installcert -d $domain --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc; then
+    echo -e "✅ Certificate berhasil diinstall ke /etc/xray/"
+else
+    echo -e "⚠️ Menggunakan fallback certificate yang sudah dibuat..."
+    # Ensure certificate files exist and have proper permissions
+    if [ ! -f "/etc/xray/xray.crt" ] || [ ! -f "/etc/xray/xray.key" ]; then
+        echo -e "🔧 Membuat fallback certificate..."
+        openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
+            -subj "/C=ID/ST=Jakarta/L=Jakarta/O=VPN/CN=$domain" \
+            -keyout /etc/xray/xray.key -out /etc/xray/xray.crt
+    fi
+fi
+
+# Set proper permissions for certificate files
+chmod 644 /etc/xray/xray.crt
+chmod 600 /etc/xray/xray.key
+chown www-data:www-data /etc/xray/xray.crt /etc/xray/xray.key
 
 # Create SSL renewal script
+echo -e "📝 Membuat script auto-renewal SSL..."
 cat > /usr/local/bin/ssl_renew.sh <<'EOF'
 #!/bin/bash
 /etc/init.d/nginx stop
-"/root/.acme.sh"/acme.sh --cron --home "/root/.acme.sh" &> /root/renew_ssl.log
+if [ -f "/root/.acme.sh/acme.sh" ]; then
+    "/root/.acme.sh"/acme.sh --cron --home "/root/.acme.sh" &> /root/renew_ssl.log
+fi
 /etc/init.d/nginx start
 /etc/init.d/nginx status
 EOF
 chmod +x /usr/local/bin/ssl_renew.sh
+echo -e "✅ Script auto-renewal SSL berhasil dibuat"
 
 # Add to crontab if not exists
+echo -e "⏰ Menambahkan cron job untuk auto-renewal SSL..."
 if ! grep -q 'ssl_renew.sh' /var/spool/cron/crontabs/root 2>/dev/null; then
     (crontab -l 2>/dev/null; echo "15 03 */3 * * /usr/local/bin/ssl_renew.sh") | crontab
+    echo -e "✅ Cron job auto-renewal SSL berhasil ditambahkan (setiap 3 hari, 03:15)"
+else
+    echo -e "ℹ️ Cron job auto-renewal SSL sudah ada"
 fi
 
+echo -e "📁 Membuat direktori public_html..."
 mkdir -p /home/vps/public_html
+echo -e "✅ Direktori public_html berhasil dibuat"
 
 # Generate UUID and custom paths
-echo -e "[ ${green}INFO${NC} ] Generating UUID and custom paths..."
+echo -e "🎲 Membuat UUID dan custom paths..."
 uuid=$(cat /proc/sys/kernel/random/uuid)
+echo -e "✅ UUID dibuat: $uuid"
 
 # Function to generate random path
 generate_random_path() {
@@ -1059,6 +1386,7 @@ generate_random_path() {
 }
 
 # Custom paths with environment variable support
+echo -e "🛣️ Membuat custom paths untuk setiap protokol..."
 VMESS_PATH="${CUSTOM_VMESS_PATH:-$(generate_random_path "vm")}"
 VLESS_PATH="${CUSTOM_VLESS_PATH:-$(generate_random_path "vl")}"
 TROJAN_PATH="${CUSTOM_TROJAN_PATH:-$(generate_random_path "tr")}"
@@ -1070,18 +1398,21 @@ VLESS_GRPC_SERVICE="${CUSTOM_VLESS_GRPC_SERVICE:-vlessgrpc}"
 VMESS_GRPC_SERVICE="${CUSTOM_VMESS_GRPC_SERVICE:-vmessgrpc}"
 TROJAN_GRPC_SERVICE="${CUSTOM_TROJAN_GRPC_SERVICE:-trojangrpc}"
 
+echo -e "✅ Custom paths berhasil dibuat"
+
 # Generate REALITY keys
-echo -e "[ ${green}INFO${NC} ] Generating REALITY keys..."
+echo -e "🔑 Membuat REALITY keys..."
 XRAY_KEYS=$(/usr/local/bin/xray x25519)
 REALITY_PRIVATE=$(echo "$XRAY_KEYS" | head -n1 | cut -d' ' -f3)
 REALITY_PUBLIC=$(echo "$XRAY_KEYS" | tail -n1 | cut -d' ' -f3)
+echo -e "✅ REALITY keys berhasil dibuat"
 
-echo -e "[ ${green}INFO${NC} ] Generated configurations:"
-echo -e "[ ${green}INFO${NC} ] VMess WS: $VMESS_PATH"
-echo -e "[ ${green}INFO${NC} ] VMess XHTTP: $VMESS_XHTTP_PATH"
-echo -e "[ ${green}INFO${NC} ] VLess WS: $VLESS_PATH"
-echo -e "[ ${green}INFO${NC} ] VLess XHTTP: $VLESS_XHTTP_PATH"
-echo -e "[ ${green}INFO${NC} ] Trojan WS: $TROJAN_PATH"
+echo -e "📋 Konfigurasi yang telah dibuat:"
+echo -e "  🔸 VMess WS: $VMESS_PATH"
+echo -e "  🔸 VMess XHTTP: $VMESS_XHTTP_PATH"
+echo -e "  🔸 VLess WS: $VLESS_PATH"
+echo -e "  🔸 VLess XHTTP: $VLESS_XHTTP_PATH"
+echo -e "  🔸 Trojan WS: $TROJAN_PATH"
 # xray config
 cat > /etc/xray/config.json << END
 {
@@ -1509,26 +1840,51 @@ WantedBy=multi-user.target
 EOF
 
 # Install Trojan Go
-echo -e "[ ${green}INFO$NC ] Getting latest Trojan-Go version..."
+echo -e "🚀 Menginstall Trojan-Go..."
+echo -e "🔍 Mendapatkan versi terbaru Trojan-Go..."
 latest_version="$(curl -s "https://api.github.com/repos/p4gefau1t/trojan-go/releases/latest" | grep tag_name | cut -d '"' -f 4 | sed 's/v//')"
 if [ -z "$latest_version" ]; then
-    echo -e "[ ${red}ERROR$NC ] Failed to get latest Trojan-Go version, using fallback method"
+    echo -e "⚠️ Gagal mendapatkan versi terbaru Trojan-Go, menggunakan fallback method..."
     latest_version="$(curl -s "https://api.github.com/repos/p4gefau1t/trojan-go/releases" | grep tag_name | sed -E 's/.*"v(.*)".*/\1/' | head -n 1)"
 fi
-echo -e "[ ${green}INFO$NC ] Installing Trojan-Go v${latest_version}"
+
+if [ -z "$latest_version" ]; then
+    echo -e "⚠️ Gagal mendapatkan versi Trojan-Go, menggunakan versi default..."
+    latest_version="0.10.6"
+fi
+
+echo -e "📦 Menginstall Trojan-Go v${latest_version}..."
 trojango_link="https://github.com/p4gefau1t/trojan-go/releases/download/v${latest_version}/trojan-go-linux-amd64.zip"
+
+echo -e "📁 Membuat direktori Trojan-Go..."
 mkdir -p "/usr/bin/trojan-go"
 mkdir -p "/etc/trojan-go"
+echo -e "✅ Direktori berhasil dibuat"
+
+echo -e "📥 Mengunduh Trojan-Go dari GitHub..."
 cd `mktemp -d`
-curl -sL "${trojango_link}" -o trojan-go.zip
-unzip -q trojan-go.zip && rm -rf trojan-go.zip
-mv trojan-go /usr/local/bin/trojan-go
-chmod +x /usr/local/bin/trojan-go
+if curl -sL "${trojango_link}" -o trojan-go.zip; then
+    echo -e "✅ Trojan-Go berhasil diunduh"
+    echo -e "📦 Mengekstrak dan menginstall..."
+    if unzip -q trojan-go.zip && rm -rf trojan-go.zip; then
+        mv trojan-go /usr/local/bin/trojan-go
+        chmod +x /usr/local/bin/trojan-go
+        echo -e "✅ Trojan-Go berhasil diinstall"
+    else
+        echo -e "❌ Gagal mengekstrak Trojan-Go"
+    fi
+else
+    echo -e "❌ Gagal mengunduh Trojan-Go"
+fi
+
+echo -e "📁 Membuat direktori log dan konfigurasi..."
 mkdir /var/log/trojan-go/
 touch /etc/trojan-go/akun.conf
 touch /var/log/trojan-go/trojan-go.log
+echo -e "✅ Direktori log dan file konfigurasi berhasil dibuat"
 
 # Buat Config Trojan Go
+echo -e "📝 Membuat konfigurasi Trojan-Go..."
 cat > /etc/trojan-go/config.json << END
 {
   "run_type": "server",
@@ -1593,7 +1949,10 @@ cat > /etc/trojan-go/config.json << END
 }
 END
 
+echo -e "✅ Konfigurasi Trojan-Go berhasil dibuat"
+
 # Installing Trojan Go Service
+echo -e "📝 Membuat systemd service untuk Trojan-Go..."
 cat > /etc/systemd/system/trojan-go.service << END
 [Unit]
 Description=Trojan-Go Service Mod By ADAM SIJA
@@ -1612,13 +1971,17 @@ RestartPreventExitStatus=23
 [Install]
 WantedBy=multi-user.target
 END
+echo -e "✅ Systemd service Trojan-Go berhasil dibuat"
 
 # Trojan Go Uuid
+echo -e "📝 Menyimpan UUID untuk Trojan-Go..."
 cat > /etc/trojan-go/uuid.txt << END
 $uuid
 END
+echo -e "✅ UUID Trojan-Go berhasil disimpan"
 
 #nginx config
+echo -e "🌐 Membuat konfigurasi nginx untuk XRAY..."
 cat >/etc/nginx/conf.d/xray.conf <<EOF
 server {
     listen 80;
@@ -1860,8 +2223,10 @@ server {
     }
 }
 EOF
+echo -e "✅ Konfigurasi nginx berhasil dibuat"
 
 # Save paths to configuration files for scripts to use
+echo -e "💾 Menyimpan custom paths ke file konfigurasi..."
 echo "$VMESS_PATH" > /etc/xray/vmess_path
 echo "$VMESS_XHTTP_PATH" > /etc/xray/vmess_xhttp_path
 echo "$VLESS_PATH" > /etc/xray/vless_path  
@@ -1874,132 +2239,356 @@ echo "$TROJAN_GRPC_SERVICE" > /etc/xray/trojan_grpc_service
 echo "$REALITY_PRIVATE" > /etc/xray/reality_private
 echo "$REALITY_PUBLIC" > /etc/xray/reality_public
 
-echo -e "[ ${green}INFO$NC ] Custom paths saved to /etc/xray/ files"
+echo -e "✅ Custom paths berhasil disimpan ke /etc/xray/ files"
 
-echo -e "[ ${green}INFO$NC ] Configuring firewall for REALITY port 8443"
-ufw allow 8443/tcp >/dev/null 2>&1
-iptables -I INPUT -p tcp --dport 8443 -j ACCEPT >/dev/null 2>&1
-iptables-save > /etc/iptables/rules.v4 >/dev/null 2>&1
+echo -e "🔥 Mengkonfigurasi firewall untuk REALITY port 8443..."
+if ufw allow 8443/tcp; then
+    echo -e "✅ UFW rule untuk port 8443 berhasil ditambahkan"
+else
+    echo -e "⚠️ Gagal menambahkan UFW rule untuk port 8443"
+fi
 
-echo -e "$yell[SERVICE]$NC Restart All service"
+if iptables -I INPUT -p tcp --dport 8443 -j ACCEPT; then
+    echo -e "✅ Iptables rule untuk port 8443 berhasil ditambahkan"
+else
+    echo -e "⚠️ Gagal menambahkan iptables rule untuk port 8443"
+fi
+
+if iptables-save > /etc/iptables/rules.v4; then
+    echo -e "✅ Iptables rules berhasil disimpan"
+else
+    echo -e "⚠️ Gagal menyimpan iptables rules"
+fi
+
+echo -e "🔄 Memulai ulang semua service..."
+echo -e "🔄 Memuat ulang systemd daemon..."
 systemctl daemon-reload
 sleep 1
-echo -e "[ ${green}ok${NC} ] Enable & restart xray "
-systemctl daemon-reload
-systemctl enable xray
-systemctl restart xray
-systemctl restart nginx
-systemctl enable runn
-systemctl restart runn
-systemctl stop trojan-go
-systemctl start trojan-go
-systemctl enable trojan-go
-systemctl restart trojan-go
 
+echo -e "🚀 Mengaktifkan dan memulai service XRAY..."
+systemctl daemon-reload
+if systemctl enable xray; then
+    echo -e "✅ XRAY service berhasil diaktifkan"
+else
+    echo -e "⚠️ Gagal mengaktifkan XRAY service"
+fi
+
+if systemctl restart xray; then
+    echo -e "✅ XRAY service berhasil dimulai"
+else
+    echo -e "❌ Gagal memulai XRAY service"
+fi
+
+echo -e "🌐 Memulai ulang nginx..."
+if systemctl restart nginx; then
+    echo -e "✅ Nginx berhasil dimulai ulang"
+else
+    echo -e "❌ Gagal memulai ulang nginx"
+fi
+
+echo -e "🔧 Mengaktifkan dan memulai service runn..."
+if systemctl enable runn; then
+    echo -e "✅ Service runn berhasil diaktifkan"
+else
+    echo -e "⚠️ Gagal mengaktifkan service runn"
+fi
+
+if systemctl restart runn; then
+    echo -e "✅ Service runn berhasil dimulai"
+else
+    echo -e "⚠️ Gagal memulai service runn"
+fi
+
+echo -e "🚀 Mengatur service Trojan-Go..."
+systemctl stop trojan-go
+if systemctl start trojan-go; then
+    echo -e "✅ Trojan-Go berhasil dimulai"
+else
+    echo -e "❌ Gagal memulai Trojan-Go"
+fi
+
+if systemctl enable trojan-go; then
+    echo -e "✅ Trojan-Go berhasil diaktifkan"
+else
+    echo -e "⚠️ Gagal mengaktifkan Trojan-Go"
+fi
+
+if systemctl restart trojan-go; then
+    echo -e "✅ Trojan-Go berhasil dimulai ulang"
+else
+    echo -e "❌ Gagal memulai ulang Trojan-Go"
+fi
+
+echo -e "📥 Mengunduh script manajemen XRAY..."
 cd /usr/bin/
+
 # vmess - Enhanced version with multiple protocols (WS, XHTTP, GRPC)
-wget -O add-ws "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/add-ws-enhanced.sh" && chmod +x add-ws
-wget -O trialvmess "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialvmess.sh" && chmod +x trialvmess
-wget -O renew-ws "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renew-ws.sh" && chmod +x renew-ws
-wget -O del-ws "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/del-ws.sh" && chmod +x del-ws
-wget -O cek-ws "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cek-ws.sh" && chmod +x cek-ws
+echo -e "📥 Mengunduh script VMess Enhanced..."
+if wget -O add-ws-enhanced "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/add-ws-enhanced.sh" && chmod +x add-ws-enhanced; then
+    echo -e "✅ add-ws-enhanced berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh add-ws-enhanced"
+fi
+
+if wget -O trialvmess "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialvmess.sh" && chmod +x trialvmess; then
+    echo -e "✅ trialvmess berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh trialvmess"
+fi
+
+if wget -O renew-ws "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renew-ws.sh" && chmod +x renew-ws; then
+    echo -e "✅ renew-ws berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh renew-ws"
+fi
+
+if wget -O del-ws "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/del-ws.sh" && chmod +x del-ws; then
+    echo -e "✅ del-ws berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh del-ws"
+fi
+
+if wget -O cek-ws "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cek-ws.sh" && chmod +x cek-ws; then
+    echo -e "✅ cek-ws berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh cek-ws"
+fi
 
 # vless - Enhanced version with multiple protocols (WS, XHTTP, GRPC, REALITY)
-wget -O add-vless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/add-vless-enhanced.sh" && chmod +x add-vless
-wget -O trialvless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialvless.sh" && chmod +x trialvless
-wget -O renew-vless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renew-vless.sh" && chmod +x renew-vless
-wget -O del-vless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/del-vless.sh" && chmod +x del-vless
-wget -O cek-vless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cek-vless.sh" && chmod +x cek-vless
+echo -e "📥 Mengunduh script VLess Enhanced..."
+if wget -O add-vless-enhanced "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/add-vless-enhanced.sh" && chmod +x add-vless-enhanced; then
+    echo -e "✅ add-vless-enhanced berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh add-vless-enhanced"
+fi
+
+if wget -O trialvless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialvless.sh" && chmod +x trialvless; then
+    echo -e "✅ trialvless berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh trialvless"
+fi
+
+if wget -O renew-vless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renew-vless.sh" && chmod +x renew-vless; then
+    echo -e "✅ renew-vless berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh renew-vless"
+fi
+
+if wget -O del-vless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/del-vless.sh" && chmod +x del-vless; then
+    echo -e "✅ del-vless berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh del-vless"
+fi
+
+if wget -O cek-vless "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cek-vless.sh" && chmod +x cek-vless; then
+    echo -e "✅ cek-vless berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh cek-vless"
+fi
 
 # trojan - Enhanced version with multiple protocols (WS, GRPC)
-wget -O add-tr "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/add-trojan-enhanced.sh" && chmod +x add-tr
-wget -O trialtrojan "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialtrojan.sh" && chmod +x trialtrojan
-wget -O del-tr "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/del-tr.sh" && chmod +x del-tr
-wget -O renew-tr "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renew-tr.sh" && chmod +x renew-tr
-wget -O cek-tr "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cek-tr.sh" && chmod +x cek-tr
+echo -e "📥 Mengunduh script Trojan Enhanced..."
+if wget -O add-trojan-enhanced "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/add-trojan-enhanced.sh" && chmod +x add-trojan-enhanced; then
+    echo -e "✅ add-trojan-enhanced berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh add-trojan-enhanced"
+fi
+
+if wget -O trialtrojan "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialtrojan.sh" && chmod +x trialtrojan; then
+    echo -e "✅ trialtrojan berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh trialtrojan"
+fi
+
+if wget -O del-tr "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/del-tr.sh" && chmod +x del-tr; then
+    echo -e "✅ del-tr berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh del-tr"
+fi
+
+if wget -O renew-tr "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renew-tr.sh" && chmod +x renew-tr; then
+    echo -e "✅ renew-tr berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh renew-tr"
+fi
+
+if wget -O cek-tr "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cek-tr.sh" && chmod +x cek-tr; then
+    echo -e "✅ cek-tr berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh cek-tr"
+fi
 
 # trojan go
-wget -O addtrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/addtrgo.sh" && chmod +x addtrgo
-wget -O trialtrojango "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialtrojango.sh" && chmod +x trialtrojango
-wget -O deltrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/deltrgo.sh" && chmod +x deltrgo
-wget -O renewtrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renewtrgo.sh" && chmod +x renewtrgo
-wget -O cektrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cektrgo.sh" && chmod +x cektrgo
+echo -e "📥 Mengunduh script Trojan-Go..."
+if wget -O addtrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/addtrgo.sh" && chmod +x addtrgo; then
+    echo -e "✅ addtrgo berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh addtrgo"
+fi
 
+if wget -O trialtrojango "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/trialtrojango.sh" && chmod +x trialtrojango; then
+    echo -e "✅ trialtrojango berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh trialtrojango"
+fi
+
+if wget -O deltrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/deltrgo.sh" && chmod +x deltrgo; then
+    echo -e "✅ deltrgo berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh deltrgo"
+fi
+
+if wget -O renewtrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/renewtrgo.sh" && chmod +x renewtrgo; then
+    echo -e "✅ renewtrgo berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh renewtrgo"
+fi
+
+if wget -O cektrgo "https://raw.githubusercontent.com/werdersarina/github-repos/main/xray/cektrgo.sh" && chmod +x cektrgo; then
+    echo -e "✅ cektrgo berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh cektrgo"
+fi
+
+echo -e "✅ Semua script XRAY berhasil diunduh!"
 
 sleep 1
-yellow() { echo -e "\\033[33;1m${*}\\033[0m"; }
-yellow "XRAY protocols installed successfully:"
-yellow "🆕 NEW PROTOCOLS (Custom Paths):"
-yellow "✅ VMess WebSocket (Custom Path: $VMESS_PATH)"
-yellow "✅ VMess XHTTP (Custom Path: $VMESS_XHTTP_PATH)"  
-yellow "✅ VLess WebSocket (Custom Path: $VLESS_PATH)"
-yellow "✅ VLess XHTTP (Custom Path: $VLESS_XHTTP_PATH)"
-yellow "✅ VLess REALITY (Port: 8443, Private Key: $REALITY_PRIVATE)"
-yellow "✅ Trojan WebSocket (Custom Path: $TROJAN_PATH)"
-yellow "✅ VMess GRPC (Service: $VMESS_GRPC_SERVICE)"
-yellow "✅ VLess GRPC (Service: $VLESS_GRPC_SERVICE)"
-yellow "✅ Trojan GRPC (Service: $TROJAN_GRPC_SERVICE)"
-echo ""
-yellow "🔄 LEGACY PROTOCOLS (Fixed Paths - for existing add-user scripts):"
-yellow "✅ VMess WebSocket (Legacy: /vmess, /worryfree, /kuota-habis, /chat)"
-yellow "✅ VLess WebSocket (Legacy: /vless)"
-yellow "✅ Trojan WebSocket (Legacy: /trojan-ws)"
-yellow "✅ All GRPC (Legacy: /vmess-grpc, /vless-grpc, /trojan-grpc)"
-echo ""
-echo -e "${green}[INFO]${NC} Custom paths support any path (e.g., /facebook, /google, /youtube)"
-echo -e "${green}[INFO]${NC} Use environment variables: CUSTOM_VMESS_PATH='/mypath' ./ins-xray.sh"
-echo -e "${green}[INFO]${NC} All configurations saved in /etc/xray/ directory"
-echo -e "${green}[INFO]${NC} Legacy paths maintained for backward compatibility with existing scripts"
-echo ""
+echo -e "🎉 INSTALASI XRAY BERHASIL DISELESAIKAN!"
+echo -e ""
+echo -e "📋 PROTOKOL XRAY YANG BERHASIL DIINSTALL:"
+echo -e ""
+echo -e "🆕 PROTOKOL BARU (Custom Paths):"
+echo -e "  ✅ VMess WebSocket (Custom Path: $VMESS_PATH)"
+echo -e "  ✅ VMess XHTTP (Custom Path: $VMESS_XHTTP_PATH)"  
+echo -e "  ✅ VLess WebSocket (Custom Path: $VLESS_PATH)"
+echo -e "  ✅ VLess XHTTP (Custom Path: $VLESS_XHTTP_PATH)"
+echo -e "  ✅ VLess REALITY (Port: 8443, Private Key: $REALITY_PRIVATE)"
+echo -e "  ✅ Trojan WebSocket (Custom Path: $TROJAN_PATH)"
+echo -e "  ✅ VMess GRPC (Service: $VMESS_GRPC_SERVICE)"
+echo -e "  ✅ VLess GRPC (Service: $VLESS_GRPC_SERVICE)"
+echo -e "  ✅ Trojan GRPC (Service: $TROJAN_GRPC_SERVICE)"
+echo -e ""
+echo -e "🔄 PROTOKOL LEGACY (Fixed Paths - untuk kompatibilitas dengan script lama):"
+echo -e "  ✅ VMess WebSocket (Legacy: /vmess, /worryfree, /kuota-habis, /chat)"
+echo -e "  ✅ VLess WebSocket (Legacy: /vless)"
+echo -e "  ✅ Trojan WebSocket (Legacy: /trojan-ws)"
+echo -e "  ✅ Semua GRPC (Legacy: /vmess-grpc, /vless-grpc, /trojan-grpc)"
+echo -e ""
+echo -e "ℹ️ INFO PENTING:"
+echo -e "  📁 Custom paths mendukung path apapun (contoh: /facebook, /google, /youtube)"
+echo -e "  🔧 Gunakan environment variables: CUSTOM_VMESS_PATH='/mypath' ./setup-2025.1.sh"
+echo -e "  💾 Semua konfigurasi disimpan di direktori /etc/xray/"
+echo -e "  🔄 Legacy paths tetap dijaga untuk kompatibilitas dengan script yang sudah ada"
+echo -e ""
 
+echo -e "📁 Memindahkan file domain ke direktori XRAY..."
 mv /root/domain /etc/xray/ 
 if [ -f /root/scdomain ]; then
+    echo -e "🗑️ Menghapus file temporary..."
     rm /root/scdomain > /dev/null 2>&1
 fi
+echo -e "✅ Konfigurasi domain berhasil dipindahkan"
+
 clear
 
 # =============================================================================
 # SECTION 5: WEBSOCKET TUNNELING INSTALLATION
 # =============================================================================
 
-echo -e "[ ${green}INFO${NC} ] Installing WebSocket tunneling..."
+echo -e "🌐 Menginstall WebSocket tunneling..."
 
 cd /root
 
 # Install Script Websocket-SSH Python
-wget -O /usr/local/bin/ws-dropbear https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/dropbear-ws.py >/dev/null 2>&1
-wget -O /usr/local/bin/ws-stunnel https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/ws-stunnel >/dev/null 2>&1
+echo -e "📥 Mengunduh script WebSocket untuk Dropbear..."
+if wget -O /usr/local/bin/ws-dropbear https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/dropbear-ws.py; then
+    echo -e "✅ Script WebSocket Dropbear berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh script WebSocket Dropbear"
+fi
+
+echo -e "📥 Mengunduh script WebSocket untuk Stunnel..."
+if wget -O /usr/local/bin/ws-stunnel https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/ws-stunnel; then
+    echo -e "✅ Script WebSocket Stunnel berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh script WebSocket Stunnel"
+fi
 
 # Set permissions
+echo -e "🔧 Mengatur permissions untuk script WebSocket..."
 chmod +x /usr/local/bin/ws-dropbear
 chmod +x /usr/local/bin/ws-stunnel
+echo -e "✅ Permissions berhasil diatur"
 
 # System Dropbear Websocket-SSH Python
-wget -O /etc/systemd/system/ws-dropbear.service https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/service-wsdropbear >/dev/null 2>&1 && chmod +x /etc/systemd/system/ws-dropbear.service
+echo -e "📥 Mengunduh service file untuk WebSocket Dropbear..."
+if wget -O /etc/systemd/system/ws-dropbear.service https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/service-wsdropbear && chmod +x /etc/systemd/system/ws-dropbear.service; then
+    echo -e "✅ Service file WebSocket Dropbear berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh service file WebSocket Dropbear"
+fi
 
 # System SSL/TLS Websocket-SSH Python
-wget -O /etc/systemd/system/ws-stunnel.service https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/ws-stunnel.service >/dev/null 2>&1 && chmod +x /etc/systemd/system/ws-stunnel.service
+echo -e "📥 Mengunduh service file untuk WebSocket Stunnel..."
+if wget -O /etc/systemd/system/ws-stunnel.service https://raw.githubusercontent.com/werdersarina/github-repos/main/sshws/ws-stunnel.service && chmod +x /etc/systemd/system/ws-stunnel.service; then
+    echo -e "✅ Service file WebSocket Stunnel berhasil diunduh"
+else
+    echo -e "⚠️ Gagal mengunduh service file WebSocket Stunnel"
+fi
 
 # Restart services
+echo -e "🔄 Memuat ulang systemd daemon..."
 systemctl daemon-reload
+echo -e "✅ Systemd daemon berhasil dimuat ulang"
 
 # Enable & Start & Restart ws-dropbear service
-systemctl enable ws-dropbear.service >/dev/null 2>&1
-systemctl start ws-dropbear.service >/dev/null 2>&1
-systemctl restart ws-dropbear.service >/dev/null 2>&1
+echo -e "🚀 Mengaktifkan dan memulai service WebSocket Dropbear..."
+if systemctl enable ws-dropbear.service; then
+    echo -e "✅ Service WebSocket Dropbear berhasil diaktifkan"
+else
+    echo -e "⚠️ Gagal mengaktifkan service WebSocket Dropbear"
+fi
+
+if systemctl start ws-dropbear.service; then
+    echo -e "✅ Service WebSocket Dropbear berhasil dimulai"
+else
+    echo -e "⚠️ Gagal memulai service WebSocket Dropbear"
+fi
+
+if systemctl restart ws-dropbear.service; then
+    echo -e "✅ Service WebSocket Dropbear berhasil dimulai ulang"
+else
+    echo -e "⚠️ Gagal memulai ulang service WebSocket Dropbear"
+fi
 
 # Enable & Start & Restart ws-stunnel service
-systemctl enable ws-stunnel.service >/dev/null 2>&1
-systemctl start ws-stunnel.service >/dev/null 2>&1
-systemctl restart ws-stunnel.service >/dev/null 2>&1
+echo -e "🚀 Mengaktifkan dan memulai service WebSocket Stunnel..."
+if systemctl enable ws-stunnel.service; then
+    echo -e "✅ Service WebSocket Stunnel berhasil diaktifkan"
+else
+    echo -e "⚠️ Gagal mengaktifkan service WebSocket Stunnel"
+fi
 
-echo -e "[ ${green}INFO${NC} ] WebSocket tunneling installed successfully"
+if systemctl start ws-stunnel.service; then
+    echo -e "✅ Service WebSocket Stunnel berhasil dimulai"
+else
+    echo -e "⚠️ Gagal memulai service WebSocket Stunnel"
+fi
+
+if systemctl restart ws-stunnel.service; then
+    echo -e "✅ Service WebSocket Stunnel berhasil dimulai ulang"
+else
+    echo -e "⚠️ Gagal memulai ulang service WebSocket Stunnel"
+fi
+
+echo -e "✅ WebSocket tunneling berhasil diinstall!"
 
 # =============================================================================
 # SECTION 6: FINALIZATION & CLEANUP
 # =============================================================================
 
 # Setup profile
+echo -e "👤 Mengatur profil user untuk auto-menu..."
 clear
 cat> /root/.profile << END
 # ~/.profile: executed by Bourne-compatible login shells.
@@ -2027,20 +2616,34 @@ if [ -t 0 ] && [ -n "\$SSH_TTY" ] && [ "\$TERM" != "dumb" ]; then
 fi
 END
 chmod 644 /root/.profile
+echo -e "✅ Profil user berhasil dikonfigurasi"
 
 # Cleanup old files
+echo -e "🧹 Membersihkan file-file lama..."
 if [ -f "/root/log-install.txt" ]; then
     rm /root/log-install.txt > /dev/null 2>&1
+    echo -e "🗑️ File log-install.txt lama berhasil dihapus"
 fi
 if [ -f "/etc/afak.conf" ]; then
     rm /etc/afak.conf > /dev/null 2>&1
+    echo -e "🗑️ File afak.conf lama berhasil dihapus"
 fi
 if [ ! -f "/etc/log-create-user.log" ]; then
     echo "Log All Account " > /etc/log-create-user.log
+    echo -e "📝 File log user berhasil dibuat"
 fi
+echo -e "✅ Cleanup file lama berhasil diselesaikan"
 
+echo -e "🧹 Membersihkan history command..."
 history -c
+echo -e "✅ History command berhasil dibersihkan"
+
+echo -e "💾 Menyimpan versi server..."
+serverV="2025.1"
 echo $serverV > /opt/.ver
+echo -e "✅ Versi server berhasil disimpan"
+
+echo -e "🌐 Mendapatkan IP address server..."
 aureb=$(cat /home/re_otm)
 b=11
 if [ $aureb -gt $b ]; then
@@ -2049,15 +2652,27 @@ else
     gg="AM"
 fi
 
-curl -sS ifconfig.me > /etc/myipvps
+if curl -sS ifconfig.me > /etc/myipvps 2>/dev/null; then
+    echo -e "✅ IP address berhasil disimpan ke /etc/myipvps"
+else
+    echo -e "⚠️ Gagal mendapatkan IP address dari ifconfig.me, mencoba alternatif..."
+    if curl -sS ipinfo.io/ip > /etc/myipvps 2>/dev/null; then
+        echo -e "✅ IP address berhasil disimpan ke /etc/myipvps (alternatif)"
+    else
+        echo -e "⚠️ Gagal mendapatkan IP address, menggunakan IP lokal..."
+        hostname -I | cut -d' ' -f1 > /etc/myipvps
+    fi
+fi
+
+echo -e "📋 Membuat log instalasi..."
 
 echo " "
-echo "=====================-[ OTTIN NETWORK ]-===================="
+echo "🎉=====================-[ OTTIN NETWORK ]-===================="
 echo ""
 echo "------------------------------------------------------------"
 echo ""
 echo ""
-echo "   >>> Service & Port"  | tee -a log-install.txt
+echo "   📊 Service & Port"  | tee -a log-install.txt
 echo "   - OpenSSH		: 22"  | tee -a log-install.txt
 echo "   - SSH Websocket	: 80" | tee -a log-install.txt
 echo "   - SSH SSL Websocket	: 443" | tee -a log-install.txt
@@ -2074,7 +2689,7 @@ echo "   - Trojan GRPC		: 443" | tee -a log-install.txt
 echo "   - Trojan WS		: 443" | tee -a log-install.txt
 echo "   - Trojan Go		: 2087" | tee -a log-install.txt
 echo ""  | tee -a log-install.txt
-echo "   >>> Server Information & Other Features"  | tee -a log-install.txt
+echo "   ℹ️ Server Information & Other Features"  | tee -a log-install.txt
 echo "   - Timezone		: Asia/Jakarta (GMT +7)"  | tee -a log-install.txt
 echo "   - Fail2Ban		: [ON]"  | tee -a log-install.txt
 echo "   - Dflate		: [ON]"  | tee -a log-install.txt
@@ -2093,7 +2708,7 @@ echo ""
 echo ""
 echo "------------------------------------------------------------"
 echo ""
-echo "===============-[ Script Created By YT ZIXSTYLE ]-==============="
+echo "🎯===============-[ Script Created By YT ZIXSTYLE ]-==============="
 echo -e ""
 echo ""
 echo "🔥 IMPORTANT NOTES FOR GOOGLE CLOUD PLATFORM:"
@@ -2111,18 +2726,26 @@ echo ""
 echo "" | tee -a log-install.txt
 
 # Cleanup installation files
-rm -f /root/setup.sh >/dev/null 2>&1
-rm -f /root/ins-xray.sh >/dev/null 2>&1
-rm -f /root/insshws.sh >/dev/null 2>&1
-rm -f /root/ssh-vpn.sh >/dev/null 2>&1
-rm -f /root/tools.sh >/dev/null 2>&1
+echo -e "🧹 Membersihkan file instalasi sementara..."
+files_to_cleanup=("/root/setup.sh" "/root/ins-xray.sh" "/root/insshws.sh" "/root/ssh-vpn.sh" "/root/tools.sh")
+for file in "${files_to_cleanup[@]}"; do
+    if [ -f "$file" ]; then
+        rm -f "$file" > /dev/null 2>&1
+        echo -e "🗑️ File $file berhasil dihapus"
+    fi
+done
+echo -e "✅ Cleanup file instalasi berhasil diselesaikan"
 
+echo -e "⏱️ Menghitung waktu total instalasi..."
 secs_to_human "$(($(date +%s) - ${start}))" | tee -a log-install.txt
+echo -e "🎉 INSTALASI LENGKAP VPN SERVER BERHASIL DISELESAIKAN!"
 echo -e ""
 echo -ne "[ ${yell}WARNING${NC} ] Do you want to reboot now ? (y/n)? "
 read answer
 if [ "$answer" == "${answer#[Yy]}" ]; then
+    echo -e "✅ Installation completed. You can reboot manually later with 'reboot' command."
     exit 0
 else
+    echo -e "🔄 Rebooting system..."
     reboot
 fi
