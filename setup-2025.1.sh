@@ -3099,7 +3099,7 @@ done
 
 # Network test
 echo -e ""
-echo -e "� Test Konektivitas:"
+echo -e "🔍 Test Konektivitas:"
 if curl -s -I http://localhost:8080 | grep -q "200 OK\|HTTP"; then
     echo -e "✅ Web server: ACCESSIBLE"
 else
