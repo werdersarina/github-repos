@@ -53,6 +53,22 @@ if [[ "$hst" != "$dart" ]]; then
     echo "$localip $(hostname)" >> /etc/hosts
 fi
 
+# Detect OS version for compatibility
+source /etc/os-release
+OS_VERSION=$VERSION_ID
+echo -e "[ ${green}INFO${NC} ] Detected Ubuntu $OS_VERSION"
+
+# Ubuntu 24.04 specific optimizations
+if [[ "$OS_VERSION" == "24.04" ]]; then
+    echo -e "[ ${green}INFO${NC} ] Applying Ubuntu 24.04 LTS optimizations..."
+    export UBUNTU_24=true
+    # Set stricter systemd policies for 24.04
+    export SYSTEMD_STRICT=true
+else
+    export UBUNTU_24=false
+    export SYSTEMD_STRICT=false
+fi
+
 # Create necessary directories
 mkdir -p /etc/xray /etc/v2ray /var/lib/SIJA
 touch /etc/xray/domain /etc/v2ray/domain /etc/xray/scdomain /etc/v2ray/scdomain
@@ -178,26 +194,43 @@ echo ""
 echo "🧹 Removing conflicting packages..."
 apt-get remove --purge ufw firewalld exim4 -y
 
-# Install essential packages (consolidated to prevent duplicates)
-echo ""
-echo "📦 Installing essential packages..."
-echo "This may take a few minutes..."
+# Install essential packages (Ubuntu 24.04 LTS Compatible)
+echo -e "[ ${green}INFO${NC} ] Installing essential packages..."
+echo -e "[ ${green}INFO${NC} ] This may take a few minutes..."
+
+# Ubuntu 24.04 specific package handling
+export DEBIAN_FRONTEND=noninteractive
+
+# Install core packages first
+apt install -y screen curl jq wget >/dev/null 2>&1
+
+# Install networking and system tools
 apt install -y \
-    screen curl jq bzip2 gzip coreutils rsyslog iftop htop zip unzip \
+    bzip2 gzip coreutils rsyslog iftop htop zip unzip \
     net-tools sed gnupg gnupg1 bc apt-transport-https build-essential \
     dirmngr libxml-parser-perl neofetch git lsof openssl openvpn \
-    easy-rsa fail2ban tmux stunnel4 vnstat squid dropbear \
+    easy-rsa fail2ban tmux stunnel4 vnstat squid \
     libsqlite3-dev socat cron bash-completion ntpdate xz-utils \
     gnupg2 dnsutils lsb-release chrony libnss3-dev libnspr4-dev \
     pkg-config libpam0g-dev libcap-ng-dev libcap-ng-utils \
     libselinux1-dev libcurl4-nss-dev flex bison make libnss3-tools \
-    libevent-dev xl2tpd figlet ruby python3 python3-pip
+    libevent-dev xl2tpd figlet ruby python3 python3-pip >/dev/null 2>&1
 
-# Install Node.js 20.x
-echo ""
-echo "📦 Installing Node.js 20.x..."
-curl -sSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install nodejs -y
+# Install dropbear separately for better error handling
+echo -e "[ ${green}INFO${NC} ] Installing Dropbear SSH server..."
+apt install -y dropbear >/dev/null 2>&1
+
+# Verify critical packages
+if ! command -v dropbear >/dev/null 2>&1; then
+    echo -e "[ ${yell}WARNING${NC} ] Dropbear installation failed, retrying..."
+    apt update >/dev/null 2>&1
+    apt install -y dropbear >/dev/null 2>&1
+fi
+
+# Install Node.js 20.x (Ubuntu 24.04 compatible)
+echo -e "[ ${green}INFO${NC} ] Installing Node.js 20.x..."
+curl -sSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+apt-get install nodejs -y >/dev/null 2>&1
 
 # Install Ruby gems
 echo ""
@@ -511,48 +544,41 @@ else
     systemctl restart sshd 2>/dev/null || true
 fi
 
-# Configure Dropbear SSH
-echo ""
-echo "🔐 Installing and configuring Dropbear SSH..."
-apt -y install dropbear
+# Configure Dropbear SSH (Ubuntu 24.04 LTS Compatible)
+echo -e "[ ${green}INFO${NC} ] Installing and configuring Dropbear..."
+apt -y install dropbear >/dev/null 2>&1
 
 # Stop default dropbear service
-echo "Stopping default dropbear service..."
-systemctl stop dropbear
-systemctl disable dropbear
+systemctl stop dropbear >/dev/null 2>&1
+systemctl disable dropbear >/dev/null 2>&1
 
 # Configure dropbear for compatibility
-echo "Configuring dropbear settings..."
 sed -i 's/NO_START=1/NO_START=0/g' /etc/default/dropbear
 sed -i 's/DROPBEAR_PORT=22/DROPBEAR_PORT=143/g' /etc/default/dropbear
 sed -i 's/DROPBEAR_EXTRA_ARGS=/DROPBEAR_EXTRA_ARGS="-p 50000 -p 109 -p 110 -p 69"/g' /etc/default/dropbear
 
 # Generate dropbear host keys
 mkdir -p /etc/dropbear
-echo "Generating dropbear host keys..."
+echo -e "[ ${green}INFO${NC} ] Generating dropbear host keys..."
 if [ ! -f /etc/dropbear/dropbear_rsa_host_key ]; then
-    echo "  ✓ Generating RSA host key..."
-    dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key -s 2048
+    dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key -s 2048 >/dev/null 2>&1
 fi
 if [ ! -f /etc/dropbear/dropbear_ecdsa_host_key ]; then
-    echo "  ✓ Generating ECDSA host key..."
-    dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key
+    dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key >/dev/null 2>&1
 fi
 if [ ! -f /etc/dropbear/dropbear_ed25519_host_key ]; then
-    echo "  ✓ Generating ED25519 host key..."
-    dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key
+    dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1
 fi
 
 # Set proper permissions
 chmod 600 /etc/dropbear/dropbear_*_host_key
 chown root:root /etc/dropbear/dropbear_*_host_key
-echo "✅ Dropbear host keys generated and secured"
 
 # Ensure shells are available
 grep -qxF "/bin/false" /etc/shells || echo "/bin/false" >> /etc/shells
 grep -qxF "/usr/sbin/nologin" /etc/shells || echo "/usr/sbin/nologin" >> /etc/shells
 
-# Create systemd service for multi-port dropbear
+# Create systemd service for multi-port dropbear (Ubuntu 24.04 Compatible)
 cat > /etc/systemd/system/dropbear-multi.service <<'EOF'
 [Unit]
 Description=Dropbear SSH server (multi-port)
@@ -560,7 +586,7 @@ After=network.target
 Wants=network.target
 
 [Service]
-Type=notify
+Type=simple
 ExecStart=/usr/sbin/dropbear -F -E -p 143 -p 50000 -p 109 -p 110 -p 69
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=process
@@ -572,25 +598,36 @@ WantedBy=multi-user.target
 EOF
 
 # Enable and start dropbear service
-echo "Setting up dropbear systemd service..."
 systemctl daemon-reload
-systemctl enable dropbear-multi.service
-systemctl start dropbear-multi.service
+systemctl enable dropbear-multi.service >/dev/null 2>&1
+systemctl start dropbear-multi.service >/dev/null 2>&1
 
 # Verify dropbear status
 sleep 3
 if systemctl is-active --quiet dropbear-multi; then
-    echo "✅ Dropbear multi-port service started successfully"
+    echo -e "[ ${green}INFO${NC} ] Dropbear multi-port service started successfully"
 else
-    echo "⚠️  Dropbear failed to start with systemd, trying manual start..."
-    pkill -f dropbear 2>/dev/null
+    echo -e "[ ${yell}WARNING${NC} ] Dropbear failed to start with systemd, trying fallback..."
+    # Ubuntu 24.04 fallback method
+    systemctl stop dropbear-multi >/dev/null 2>&1
+    pkill -f dropbear >/dev/null 2>&1
     sleep 2
-    nohup /usr/sbin/dropbear -F -E -p 143 -p 50000 -p 109 -p 110 -p 69 &
-    sleep 2
+    
+    # Use screen for better daemon management in Ubuntu 24.04
+    screen -dmS dropbear-143 dropbear -F -E -p 143
+    screen -dmS dropbear-109 dropbear -F -E -p 109
+    screen -dmS dropbear-50000 dropbear -F -E -p 50000
+    screen -dmS dropbear-110 dropbear -F -E -p 110
+    screen -dmS dropbear-69 dropbear -F -E -p 69
+    
+    sleep 3
     if pgrep -f "dropbear.*-p.*143" >/dev/null; then
-        echo "✅ Dropbear started manually on multiple ports"
+        echo -e "[ ${green}INFO${NC} ] Dropbear started successfully on multiple ports"
     else
-        echo "❌ Dropbear failed to start completely"
+        echo -e "[ ${red}ERROR${NC} ] Dropbear failed to start"
+        # Last resort - use original dropbear service
+        systemctl enable dropbear >/dev/null 2>&1
+        systemctl restart dropbear >/dev/null 2>&1 || /etc/init.d/dropbear restart >/dev/null 2>&1
     fi
 fi
 # Configure Stunnel4
@@ -2708,10 +2745,67 @@ echo ""
 echo ""
 echo "------------------------------------------------------------"
 echo ""
+
+# Final Dropbear status check (Ubuntu 24.04 diagnostic)
+echo -e "[ ${green}INFO${NC} ] Final Dropbear status check..."
+if pgrep -f "dropbear" >/dev/null; then
+    echo -e "[ ${green}SUCCESS${NC} ] Dropbear is running on the following ports:"
+    ss -tlnp | grep dropbear | awk '{print "   - Port: " $4}' | sed 's/.*://' | sort -n
+    echo -e "[ ${green}INFO${NC} ] Dropbear service status: ACTIVE"
+else
+    echo -e "[ ${yell}WARNING${NC} ] Dropbear is not running!"
+    echo -e "[ ${green}INFO${NC} ] Trying emergency restart..."
+    systemctl restart dropbear-multi >/dev/null 2>&1 || {
+        /etc/init.d/dropbear restart >/dev/null 2>&1 || {
+            echo -e "[ ${red}ERROR${NC} ] Dropbear failed to start"
+            echo -e "[ ${green}INFO${NC} ] Manual command to start Dropbear:"
+            echo "   systemctl start dropbear-multi"
+            echo "   OR"
+            echo "   dropbear -p 143 -p 109"
+        }
+    }
+fi
+
+# Create Dropbear diagnostic script for Ubuntu 24.04
+cat > /usr/local/bin/dropbear-check <<'EOF'
+#!/bin/bash
+echo "=== Dropbear Diagnostic Tool ==="
+echo "Ubuntu Version: $(lsb_release -r | awk '{print $2}')"
+echo ""
+echo "1. Dropbear Process Status:"
+if pgrep -f dropbear >/dev/null; then
+    echo "   ✅ Dropbear is running"
+    pgrep -f dropbear | while read pid; do
+        echo "   PID: $pid - $(ps -p $pid -o args --no-headers)"
+    done
+else
+    echo "   ❌ Dropbear is not running"
+fi
+
+echo ""
+echo "2. Listening Ports:"
+ss -tlnp | grep dropbear || echo "   No dropbear ports found"
+
+echo ""
+echo "3. Service Status:"
+systemctl is-active dropbear-multi 2>/dev/null && echo "   dropbear-multi: $(systemctl is-active dropbear-multi)" || echo "   dropbear-multi: not found"
+systemctl is-active dropbear 2>/dev/null && echo "   dropbear: $(systemctl is-active dropbear)" || echo "   dropbear: not found"
+
+echo ""
+echo "4. Quick Fix Commands:"
+echo "   systemctl restart dropbear-multi"
+echo "   systemctl restart dropbear"
+echo "   dropbear -p 143 -p 109 &"
+EOF
+
+chmod +x /usr/local/bin/dropbear-check
+
 echo "🎯===============-[ Script Created By YT ZIXSTYLE ]-==============="
 echo -e ""
 echo ""
-echo "🔥 IMPORTANT NOTES FOR GOOGLE CLOUD PLATFORM:"
+echo "🔥 IMPORTANT NOTES FOR UBUNTU 24.04 LTS:"
+echo "   - If Dropbear issues occur, run: dropbear-check"
+echo "   - Manual Dropbear start: systemctl start dropbear-multi"
 echo "   - If SSH gets blocked, use Google Cloud Console access"
 echo "   - Emergency reset: Run '/usr/local/bin/emergency-ssh-reset.sh'"
 echo "   - SSH Monitor: Automatic recovery every 5 minutes"
