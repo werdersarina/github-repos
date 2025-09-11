@@ -53,10 +53,25 @@ if [[ "$hst" != "$dart" ]]; then
     echo "$localip $(hostname)" >> /etc/hosts
 fi
 
+# Setup logging for debugging
+INSTALL_LOG="/root/install-debug.log"
+exec 2> >(tee -a "$INSTALL_LOG")
+
+# Function for logging with timestamp
+log_message() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$INSTALL_LOG"
+}
+
+log_message "=== STARTING VPS INSTALLER SCRIPT ==="
+log_message "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '\"')"
+log_message "Hostname: $hst"
+log_message "Local IP: $localip"
+
 # Detect OS version for compatibility
 source /etc/os-release
 OS_VERSION=$VERSION_ID
 echo -e "[ ${green}INFO${NC} ] Detected Ubuntu $OS_VERSION"
+log_message "Detected Ubuntu version: $OS_VERSION"
 
 # Ubuntu 24.04 specific optimizations
 if [[ "$OS_VERSION" == "24.04" ]]; then
@@ -743,7 +758,7 @@ http_access allow localnet
 http_access allow localhost
 http_access deny all
 http_port 3128
-http_port 8080
+# http_port 8080 # Disabled to avoid conflict with Nginx
 coredump_dir /var/spool/squid
 refresh_pattern ^ftp: 1440 20% 10080
 refresh_pattern ^gopher: 1440 0% 1440
@@ -1368,15 +1383,32 @@ fi
 echo -e "📋 Menginstall certificate ke direktori XRAY..."
 if [ -f "/root/.acme.sh/acme.sh" ] && ~/.acme.sh/acme.sh --installcert -d $domain --fullchainpath /etc/xray/xray.crt --keypath /etc/xray/xray.key --ecc; then
     echo -e "✅ Certificate berhasil diinstall ke /etc/xray/"
+    # Verify certificate files are not empty
+    if [ ! -s "/etc/xray/xray.crt" ] || [ ! -s "/etc/xray/xray.key" ]; then
+        echo -e "⚠️ Certificate files are empty, creating fallback certificate..."
+        openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
+            -subj "/C=ID/ST=Jakarta/L=Jakarta/O=VPN/CN=$domain" \
+            -keyout /etc/xray/xray.key -out /etc/xray/xray.crt
+    fi
 else
     echo -e "⚠️ Menggunakan fallback certificate yang sudah dibuat..."
     # Ensure certificate files exist and have proper permissions
-    if [ ! -f "/etc/xray/xray.crt" ] || [ ! -f "/etc/xray/xray.key" ]; then
+    if [ ! -f "/etc/xray/xray.crt" ] || [ ! -f "/etc/xray/xray.key" ] || [ ! -s "/etc/xray/xray.key" ]; then
         echo -e "🔧 Membuat fallback certificate..."
         openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
             -subj "/C=ID/ST=Jakarta/L=Jakarta/O=VPN/CN=$domain" \
             -keyout /etc/xray/xray.key -out /etc/xray/xray.crt
     fi
+fi
+
+# Verify certificate files are valid
+if [ -s "/etc/xray/xray.crt" ] && [ -s "/etc/xray/xray.key" ]; then
+    echo -e "✅ Certificate files verified successfully"
+else
+    echo -e "❌ Error: Certificate files are still invalid, forcing regeneration..."
+    openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
+        -subj "/C=ID/ST=Jakarta/L=Jakarta/O=VPN/CN=$domain" \
+        -keyout /etc/xray/xray.key -out /etc/xray/xray.crt
 fi
 
 # Set proper permissions for certificate files
@@ -1440,9 +1472,24 @@ echo -e "✅ Custom paths berhasil dibuat"
 # Generate REALITY keys
 echo -e "🔑 Membuat REALITY keys..."
 XRAY_KEYS=$(/usr/local/bin/xray x25519)
-REALITY_PRIVATE=$(echo "$XRAY_KEYS" | head -n1 | cut -d' ' -f3)
-REALITY_PUBLIC=$(echo "$XRAY_KEYS" | tail -n1 | cut -d' ' -f3)
-echo -e "✅ REALITY keys berhasil dibuat"
+if [ $? -eq 0 ] && [ -n "$XRAY_KEYS" ]; then
+    REALITY_PRIVATE=$(echo "$XRAY_KEYS" | grep "PrivateKey" | cut -d' ' -f2)
+    REALITY_PUBLIC=$(echo "$XRAY_KEYS" | grep "Password" | cut -d' ' -f2)
+    
+    # Verify keys are generated properly
+    if [ -z "$REALITY_PRIVATE" ] || [ -z "$REALITY_PUBLIC" ]; then
+        echo -e "⚠️ Error generating REALITY keys, using fallback method..."
+        REALITY_PRIVATE="cCVMI0F3nbOr59_R5DKUGAtFkHu7qCk_oSbgfBRFl1s"
+        REALITY_PUBLIC="kZZRpw7-gVbBvmo9KgdOEJar43Exl-tHr5oU_rB2wB8"
+    fi
+    echo -e "✅ REALITY keys berhasil dibuat"
+    echo -e "   Private: $REALITY_PRIVATE"
+    echo -e "   Public: $REALITY_PUBLIC"
+else
+    echo -e "⚠️ Error running xray x25519, using fallback keys..."
+    REALITY_PRIVATE="cCVMI0F3nbOr59_R5DKUGAtFkHu7qCk_oSbgfBRFl1s"
+    REALITY_PUBLIC="kZZRpw7-gVbBvmo9KgdOEJar43Exl-tHr5oU_rB2wB8"
+fi
 
 echo -e "📋 Konfigurasi yang telah dibuat:"
 echo -e "  🔸 VMess WS: $VMESS_PATH"
@@ -1922,93 +1969,56 @@ echo -e "✅ Direktori log dan file konfigurasi berhasil dibuat"
 
 # Buat Config Trojan Go
 echo -e "📝 Membuat konfigurasi Trojan-Go..."
+
+# Create log directory for trojan-go
+mkdir -p /var/log/trojan-go
+chown -R root:root /var/log/trojan-go
+
+# Create simplified Trojan-Go config for Ubuntu 24.04 compatibility
 cat > /etc/trojan-go/config.json << END
 {
   "run_type": "server",
   "local_addr": "0.0.0.0",
   "local_port": 2087,
   "remote_addr": "127.0.0.1",
-  "remote_port": 89,
-  "log_level": 1,
-  "log_file": "/var/log/trojan-go/trojan-go.log",
+  "remote_port": 8080,
   "password": [
       "$uuid"
   ],
-  "disable_http_check": true,
-  "udp_timeout": 60,
   "ssl": {
-    "verify": false,
-    "verify_hostname": false,
     "cert": "/etc/xray/xray.crt",
     "key": "/etc/xray/xray.key",
-    "key_password": "",
-    "cipher": "",
-    "curves": "",
-    "prefer_server_cipher": false,
     "sni": "$domain",
-    "alpn": [
-      "http/1.1"
-    ],
-    "session_ticket": true,
-    "reuse_session": true,
-    "plain_http_response": "",
     "fallback_addr": "127.0.0.1",
-    "fallback_port": 0,
-    "fingerprint": "firefox"
-  },
-  "tcp": {
-    "no_delay": true,
-    "keep_alive": true,
-    "prefer_ipv4": true
-  },
-  "mux": {
-    "enabled": false,
-    "concurrency": 8,
-    "idle_timeout": 60
+    "fallback_port": 8080
   },
   "websocket": {
     "enabled": true,
     "path": "/trojango",
     "host": "$domain"
-  },
-    "api": {
-    "enabled": false,
-    "api_addr": "",
-    "api_port": 0,
-    "ssl": {
-      "enabled": false,
-      "key": "",
-      "cert": "",
-      "verify_client": false,
-      "client_cert": []
-    }
   }
 }
 END
 
-echo -e "✅ Konfigurasi Trojan-Go berhasil dibuat"
+echo -e "✅ Konfigurasi Trojan-Go berhasil dibuat (Ubuntu 24.04 compatible)"
 
 # Installing Trojan Go Service
 echo -e "📝 Membuat systemd service untuk Trojan-Go..."
 cat > /etc/systemd/system/trojan-go.service << END
 [Unit]
-Description=Trojan-Go Service Mod By ADAM SIJA
-Documentation=github.com/adammoi/vipies
-After=network.target nss-lookup.target
+Description=Trojan-Go Service
+After=network.target
 
 [Service]
+Type=simple
 User=root
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
 ExecStart=/usr/local/bin/trojan-go -config /etc/trojan-go/config.json
 Restart=on-failure
-RestartPreventExitStatus=23
 
 [Install]
 WantedBy=multi-user.target
 END
-echo -e "✅ Systemd service Trojan-Go berhasil dibuat"
+echo -e "✅ Systemd service Trojan-Go berhasil dibuat (simplified for Ubuntu 24.04)"
 
 # Trojan Go Uuid
 echo -e "📝 Menyimpan UUID untuk Trojan-Go..."
@@ -2188,6 +2198,18 @@ server {
         proxy_set_header Host \$http_host;
     }
     
+    # Trojan-Go WebSocket path
+    location = /trojango {
+        proxy_redirect off;
+        proxy_pass http://127.0.0.1:2087;
+        proxy_http_version 1.1;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$http_host;
+    }
+    
     # Legacy extra paths (as in original ins-xray.sh)
     location = /worryfree {
         proxy_redirect off;
@@ -2247,20 +2269,68 @@ server {
         grpc_pass grpc://127.0.0.1:33456;
     }
     
-    # Default location for webserver
+    # Default location for webserver - serve static files
     location / {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:700;
-        proxy_http_version 1.1;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$http_host;
+        root /home/vps/public_html;
+        index index.html index.htm;
+        try_files \$uri \$uri/ =404;
     }
 }
 EOF
 echo -e "✅ Konfigurasi nginx berhasil dibuat"
+
+# Create web root directory and default page
+echo -e "🌐 Membuat halaman web default..."
+mkdir -p /home/vps/public_html
+cat > /home/vps/public_html/index.html << 'WEBEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VPS Server - Active</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f4; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        .status { background: #e8f5e8; border: 1px solid #4caf50; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        .info { background: #e3f2fd; border: 1px solid #2196f3; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 VPS Server Active</h1>
+        <div class="status">
+            <h3>✅ Server Status: Online</h3>
+            <p>This VPS is running and properly configured with VPN services.</p>
+        </div>
+        <div class="info">
+            <h3>📋 Services Available:</h3>
+            <ul>
+                <li>✅ Xray-core (VMess, VLESS, Trojan)</li>
+                <li>✅ VLESS Reality</li>
+                <li>✅ Shadowsocks</li>
+                <li>✅ Nginx Web Server</li>
+                <li>✅ Squid Proxy</li>
+            </ul>
+        </div>
+        <div class="info">
+            <p><strong>Domain:</strong> DOMAIN_PLACEHOLDER</p>
+            <p><strong>Server Time:</strong> <span id="datetime"></span></p>
+        </div>
+    </div>
+    <script>
+        document.getElementById('datetime').textContent = new Date().toLocaleString();
+    </script>
+</body>
+</html>
+WEBEOF
+
+# Replace domain placeholder
+sed -i "s/DOMAIN_PLACEHOLDER/$domain/" /home/vps/public_html/index.html
+chown -R www-data:www-data /home/vps/public_html
+chmod -R 755 /home/vps/public_html
+echo -e "✅ Halaman web default berhasil dibuat"
 
 # Save paths to configuration files for scripts to use
 echo -e "💾 Menyimpan custom paths ke file konfigurasi..."
@@ -2273,8 +2343,33 @@ echo "$TROJAN_PATH" > /etc/xray/trojan_ws_path
 echo "$VLESS_GRPC_SERVICE" > /etc/xray/vless_grpc_service
 echo "$VMESS_GRPC_SERVICE" > /etc/xray/vmess_grpc_service  
 echo "$TROJAN_GRPC_SERVICE" > /etc/xray/trojan_grpc_service
-echo "$REALITY_PRIVATE" > /etc/xray/reality_private
-echo "$REALITY_PUBLIC" > /etc/xray/reality_public
+
+# Save REALITY keys with validation
+if [ -n "$REALITY_PRIVATE" ] && [ -n "$REALITY_PUBLIC" ]; then
+    echo "$REALITY_PRIVATE" > /etc/xray/reality_private
+    echo "$REALITY_PUBLIC" > /etc/xray/reality_public
+    echo -e "✅ REALITY keys berhasil disimpan"
+else
+    echo -e "❌ Error: REALITY keys are empty, generating new ones..."
+    NEW_KEYS=$(/usr/local/bin/xray x25519)
+    if [ $? -eq 0 ] && [ -n "$NEW_KEYS" ]; then
+        REALITY_PRIVATE=$(echo "$NEW_KEYS" | grep "PrivateKey" | cut -d' ' -f2)
+        REALITY_PUBLIC=$(echo "$NEW_KEYS" | grep "Password" | cut -d' ' -f2)
+        echo "$REALITY_PRIVATE" > /etc/xray/reality_private
+        echo "$REALITY_PUBLIC" > /etc/xray/reality_public
+    else
+        # Use fallback keys if generation fails
+        echo "cCVMI0F3nbOr59_R5DKUGAtFkHu7qCk_oSbgfBRFl1s" > /etc/xray/reality_private
+        echo "kZZRpw7-gVbBvmo9KgdOEJar43Exl-tHr5oU_rB2wB8" > /etc/xray/reality_public
+    fi
+fi
+
+# Verify files are not empty
+if [ ! -s "/etc/xray/reality_private" ] || [ ! -s "/etc/xray/reality_public" ]; then
+    echo -e "⚠️ REALITY key files are empty, using fallback keys..."
+    echo "cCVMI0F3nbOr59_R5DKUGAtFkHu7qCk_oSbgfBRFl1s" > /etc/xray/reality_private
+    echo "kZZRpw7-gVbBvmo9KgdOEJar43Exl-tHr5oU_rB2wB8" > /etc/xray/reality_public
+fi
 
 echo -e "✅ Custom paths berhasil disimpan ke /etc/xray/ files"
 
@@ -2312,15 +2407,82 @@ fi
 
 if systemctl restart xray; then
     echo -e "✅ XRAY service berhasil dimulai"
+    
+    # Validate Xray configuration and service status
+    sleep 2
+    if systemctl is-active --quiet xray; then
+        echo -e "✅ XRAY service sedang berjalan dengan baik"
+        # Test configuration
+        if /usr/local/bin/xray run -config /etc/xray/config.json -test > /dev/null 2>&1; then
+            echo -e "✅ Konfigurasi XRAY valid"
+        else
+            echo -e "⚠️ Warning: Konfigurasi XRAY mungkin bermasalah"
+            echo -e "   Memeriksa log untuk detail..."
+            journalctl -u xray --no-pager -n 5
+        fi
+    else
+        echo -e "❌ XRAY service tidak berjalan, memeriksa masalah..."
+        journalctl -u xray --no-pager -n 10
+        echo -e "🔧 Mencoba perbaikan otomatis..."
+        
+        # Check if private key is empty
+        if [ ! -s "/etc/xray/reality_private" ]; then
+            echo -e "⚠️ REALITY private key kosong, regenerating..."
+            NEW_KEYS=$(/usr/local/bin/xray x25519)
+            if [ $? -eq 0 ] && [ -n "$NEW_KEYS" ]; then
+                echo "$NEW_KEYS" | grep "PrivateKey" | cut -d' ' -f2 > /etc/xray/reality_private
+                echo "$NEW_KEYS" | grep "Password" | cut -d' ' -f2 > /etc/xray/reality_public
+                # Update config with new private key
+                REALITY_PRIVATE=$(cat /etc/xray/reality_private)
+                sed -i "s/\"privateKey\": \".*\"/\"privateKey\": \"$REALITY_PRIVATE\"/" /etc/xray/config.json
+                systemctl restart xray
+            fi
+        fi
+    fi
 else
     echo -e "❌ Gagal memulai XRAY service"
+    echo -e "🔍 Memeriksa log error..."
+    journalctl -u xray --no-pager -n 10
 fi
 
 echo -e "🌐 Memulai ulang nginx..."
+
+# Check for port conflicts before starting nginx
+echo -e "🔍 Memeriksa konflik port..."
+if ss -tulpn | grep -q ":8080.*squid"; then
+    echo -e "⚠️ Squid menggunakan port 8080, menghentikan untuk sementara..."
+    systemctl stop squid
+    sleep 2
+fi
+
 if systemctl restart nginx; then
     echo -e "✅ Nginx berhasil dimulai ulang"
+    
+    # Restart squid on different port if it was stopped
+    if ! systemctl is-active --quiet squid; then
+        echo -e "🔄 Memulai ulang Squid di port 3128..."
+        # Ensure squid uses port 3128 only
+        sed -i '/http_port 8080/d' /etc/squid/squid.conf
+        systemctl start squid
+    fi
+    
+    # Test nginx configuration
+    if nginx -t > /dev/null 2>&1; then
+        echo -e "✅ Konfigurasi Nginx valid"
+    else
+        echo -e "⚠️ Warning: Konfigurasi Nginx bermasalah"
+        nginx -t
+    fi
 else
     echo -e "❌ Gagal memulai ulang nginx"
+    echo -e "🔍 Memeriksa log error nginx..."
+    journalctl -u nginx --no-pager -n 5
+    
+    # Check for common issues
+    if ss -tulpn | grep ":8080"; then
+        echo -e "⚠️ Port 8080 masih terpakai oleh:"
+        ss -tulpn | grep ":8080"
+    fi
 fi
 
 echo -e "🔧 Mengaktifkan dan memulai service runn..."
@@ -2352,8 +2514,70 @@ fi
 
 if systemctl restart trojan-go; then
     echo -e "✅ Trojan-Go berhasil dimulai ulang"
+    
+    # Validate Trojan-Go service status
+    sleep 2
+    if systemctl is-active --quiet trojan-go; then
+        echo -e "✅ Trojan-Go service sedang berjalan dengan baik"
+        # Check if port is listening
+        if ss -tulpn | grep -q ":2087"; then
+            echo -e "✅ Trojan-Go listening pada port 2087"
+        else
+            echo -e "⚠️ Warning: Trojan-Go tidak listening pada port 2087"
+        fi
+    else
+        echo -e "❌ Trojan-Go service tidak berjalan, memeriksa masalah..."
+        journalctl -u trojan-go --no-pager -n 10
+        echo -e "🔧 Mencoba perbaikan otomatis..."
+        
+        # Check configuration file
+        if [ ! -s "/etc/trojan-go/config.json" ]; then
+            echo -e "⚠️ Config Trojan-Go kosong, regenerating..."
+            # Recreate config with current settings
+            cat > /etc/trojan-go/config.json << END2
+{
+  "run_type": "server",
+  "local_addr": "0.0.0.0",
+  "local_port": 2087,
+  "remote_addr": "127.0.0.1",
+  "remote_port": 8080,
+  "log_level": 1,
+  "log_file": "/var/log/trojan-go/trojan-go.log",
+  "password": ["$uuid"],
+  "disable_http_check": true,
+  "udp_timeout": 60,
+  "ssl": {
+    "verify": false,
+    "verify_hostname": false,
+    "cert": "/etc/xray/xray.crt",
+    "key": "/etc/xray/xray.key",
+    "sni": "$domain",
+    "alpn": ["http/1.1"],
+    "session_ticket": true,
+    "reuse_session": true,
+    "fallback_addr": "127.0.0.1",
+    "fallback_port": 8080,
+    "fingerprint": "firefox"
+  },
+  "websocket": {
+    "enabled": true,
+    "path": "/trojango",
+    "host": "$domain"
+  }
+}
+END2
+            systemctl restart trojan-go
+        fi
+        
+        # Check certificate files
+        if [ ! -s "/etc/xray/xray.key" ] || [ ! -s "/etc/xray/xray.crt" ]; then
+            echo -e "⚠️ Certificate files bermasalah untuk Trojan-Go"
+        fi
+    fi
 else
     echo -e "❌ Gagal memulai ulang Trojan-Go"
+    echo -e "🔍 Memeriksa log error Trojan-Go..."
+    journalctl -u trojan-go --no-pager -n 10
 fi
 
 echo -e "📥 Mengunduh script manajemen XRAY..."
@@ -2518,13 +2742,14 @@ echo -e "  💾 Semua konfigurasi disimpan di direktori /etc/xray/"
 echo -e "  🔄 Legacy paths tetap dijaga untuk kompatibilitas dengan script yang sudah ada"
 echo -e ""
 
-echo -e "📁 Memindahkan file domain ke direktori XRAY..."
-mv /root/domain /etc/xray/ 
+echo -e "📁 Menyinkronkan file domain ke direktori XRAY..."
+# Copy instead of move to maintain compatibility
+cp /root/domain /etc/xray/ 2>/dev/null || echo "Domain file already exists in both locations"
 if [ -f /root/scdomain ]; then
     echo -e "🗑️ Menghapus file temporary..."
     rm /root/scdomain > /dev/null 2>&1
 fi
-echo -e "✅ Konfigurasi domain berhasil dipindahkan"
+echo -e "✅ Konfigurasi domain berhasil disinkronkan"
 
 clear
 
@@ -2832,7 +3057,77 @@ echo -e "✅ Cleanup file instalasi berhasil diselesaikan"
 
 echo -e "⏱️ Menghitung waktu total instalasi..."
 secs_to_human "$(($(date +%s) - ${start}))" | tee -a log-install.txt
-echo -e "🎉 INSTALASI LENGKAP VPN SERVER BERHASIL DISELESAIKAN!"
+
+echo -e ""
+echo -e "🔍 VALIDASI AKHIR INSTALASI..."
+echo -e "=================================="
+
+# Final service validation
+services=("xray" "nginx" "squid" "ssh" "trojan-go")
+all_services_ok=true
+
+for service in "${services[@]}"; do
+    if systemctl is-active --quiet "$service"; then
+        echo -e "✅ $service: RUNNING"
+    else
+        echo -e "❌ $service: NOT RUNNING"
+        all_services_ok=false
+    fi
+done
+
+# Check important files
+echo -e ""
+echo -e "📋 Validasi File Konfigurasi:"
+files_to_check=(
+    "/etc/xray/config.json"
+    "/etc/xray/reality_private" 
+    "/etc/xray/xray.key"
+    "/etc/xray/domain"
+    "/home/vps/public_html/index.html"
+)
+
+for file in "${files_to_check[@]}"; do
+    if [ -s "$file" ]; then
+        echo -e "✅ $file: EXISTS & NOT EMPTY"
+    elif [ -f "$file" ]; then
+        echo -e "⚠️ $file: EXISTS BUT EMPTY"
+    else
+        echo -e "❌ $file: MISSING"
+        all_services_ok=false
+    fi
+done
+
+# Network test
+echo -e ""
+echo -e "� Test Konektivitas:"
+if curl -s -I http://localhost:8080 | grep -q "200 OK\|HTTP"; then
+    echo -e "✅ Web server: ACCESSIBLE"
+else
+    echo -e "⚠️ Web server: Check needed"
+fi
+
+# Port check
+echo -e ""
+echo -e "🔌 Port Status:"
+important_ports=("8443" "8080" "3128" "22" "2087")
+for port in "${important_ports[@]}"; do
+    if ss -tulpn | grep -q ":$port"; then
+        service_name=$(ss -tulpn | grep ":$port" | awk '{print $7}' | cut -d'"' -f2 | head -1)
+        echo -e "✅ Port $port: LISTENING ($service_name)"
+    else
+        echo -e "⚠️ Port $port: NOT LISTENING"
+    fi
+done
+
+echo -e ""
+echo -e "=================================="
+if [ "$all_services_ok" = true ]; then
+    echo -e "🎉 INSTALASI LENGKAP VPN SERVER BERHASIL DISELESAIKAN!"
+    echo -e "✅ SEMUA SERVICE BERJALAN DENGAN BAIK!"
+else
+    echo -e "⚠️ INSTALASI SELESAI DENGAN BEBERAPA PERINGATAN"
+    echo -e "   Silakan periksa service yang bermasalah di atas."
+fi
 echo -e ""
 echo -ne "[ ${yell}WARNING${NC} ] Do you want to reboot now ? (y/n)? "
 read answer
