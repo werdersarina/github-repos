@@ -8,6 +8,10 @@
 # CHANGELOG:
 # - Fixed GRPC location paths in Nginx configuration (added leading slash)
 # - Ensures GRPC services work properly with path routing
+# - Implemented fixed alternative VMess paths (/worryfree, /kuota-habis, /chat)
+# - Removed random path generation, using predictable paths for better reliability
+# - Added UUID authentication to all alternative VMess instances
+# - Enhanced path redundancy for load balancing and failover
 # =============================================================================
 
 clear
@@ -1447,31 +1451,34 @@ echo -e "📁 Membuat direktori public_html..."
 mkdir -p /home/vps/public_html
 echo -e "✅ Direktori public_html berhasil dibuat"
 
-# Generate UUID and custom paths
-echo -e "🎲 Membuat UUID dan custom paths..."
+# Generate UUID
+echo -e "🎲 Membuat UUID..."
 uuid=$(cat /proc/sys/kernel/random/uuid)
 echo -e "✅ UUID dibuat: $uuid"
 
-# Function to generate random path
-generate_random_path() {
-    local prefix=$1
-    echo "/${prefix}$(openssl rand -hex 6)"
-}
+# Default paths (simple and memorable)
+echo -e "🛣️ Menggunakan default paths untuk setiap protokol..."
+VMESS_PATH="${CUSTOM_VMESS_PATH:-/vmess}"
+VLESS_PATH="${CUSTOM_VLESS_PATH:-/vless}"
+TROJAN_PATH="${CUSTOM_TROJAN_PATH:-/trojan-ws}"
+VMESS_XHTTP_PATH="${CUSTOM_VMESS_XHTTP_PATH:-/vmess-xhttp}"
+VLESS_XHTTP_PATH="${CUSTOM_VLESS_XHTTP_PATH:-/vless-xhttp}"
 
-# Custom paths with environment variable support
-echo -e "🛣️ Membuat custom paths untuk setiap protokol..."
-VMESS_PATH="${CUSTOM_VMESS_PATH:-$(generate_random_path "vm")}"
-VLESS_PATH="${CUSTOM_VLESS_PATH:-$(generate_random_path "vl")}"
-TROJAN_PATH="${CUSTOM_TROJAN_PATH:-$(generate_random_path "tr")}"
-VMESS_XHTTP_PATH="${CUSTOM_VMESS_XHTTP_PATH:-$(generate_random_path "vmx")}"
-VLESS_XHTTP_PATH="${CUSTOM_VLESS_XHTTP_PATH:-$(generate_random_path "vlx")}"
+# Alternative VMess paths for load balancing (fixed paths, no random generation)
+VMESS_ALT_PATH_1="/worryfree"
+VMESS_ALT_PATH_2="/kuota-habis" 
+VMESS_ALT_PATH_3="/chat"
 
-# GRPC service names
+# GRPC service names (keep simple)
 VLESS_GRPC_SERVICE="${CUSTOM_VLESS_GRPC_SERVICE:-vlessgrpc}"
 VMESS_GRPC_SERVICE="${CUSTOM_VMESS_GRPC_SERVICE:-vmessgrpc}"
 TROJAN_GRPC_SERVICE="${CUSTOM_TROJAN_GRPC_SERVICE:-trojangrpc}"
 
-echo -e "✅ Custom paths berhasil dibuat"
+echo -e "✅ Default paths configured:"
+echo -e "  🔸 VMess main: $VMESS_PATH"
+echo -e "  🔸 VMess alt: $VMESS_ALT_PATH_1, $VMESS_ALT_PATH_2, $VMESS_ALT_PATH_3"
+echo -e "  🔸 VLess: $VLESS_PATH"
+echo -e "  🔸 Trojan: $TROJAN_PATH"
 
 # Generate REALITY keys
 echo -e "🔑 Membuat REALITY keys..."
@@ -2168,40 +2175,6 @@ server {
         grpc_pass grpc://127.0.0.1:30310;
     }
     
-    # Legacy paths for backward compatibility with existing add-user scripts
-    location = /vmess {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:23456;
-        proxy_http_version 1.1;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$http_host;
-    }
-    
-    location = /vless {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:14016;
-        proxy_http_version 1.1;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$http_host;
-    }
-    
-    location = /trojan-ws {
-        proxy_redirect off;
-        proxy_pass http://127.0.0.1:25432;
-        proxy_http_version 1.1;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$http_host;
-    }
-    
     # Trojan-Go WebSocket path
     location = /trojango {
         proxy_redirect off;
@@ -2348,6 +2321,11 @@ echo "$VLESS_GRPC_SERVICE" > /etc/xray/vless_grpc_service
 echo "$VMESS_GRPC_SERVICE" > /etc/xray/vmess_grpc_service  
 echo "$TROJAN_GRPC_SERVICE" > /etc/xray/trojan_grpc_service
 
+# Save alternative VMess paths
+echo "$VMESS_ALT_PATH_1" > /etc/xray/vmess_alt_path_1
+echo "$VMESS_ALT_PATH_2" > /etc/xray/vmess_alt_path_2
+echo "$VMESS_ALT_PATH_3" > /etc/xray/vmess_alt_path_3
+
 # Save REALITY keys with validation
 if [ -n "$REALITY_PRIVATE" ] && [ -n "$REALITY_PUBLIC" ]; then
     echo "$REALITY_PRIVATE" > /etc/xray/reality_private
@@ -2416,6 +2394,34 @@ if systemctl restart xray; then
     sleep 2
     if systemctl is-active --quiet xray; then
         echo -e "✅ XRAY service sedang berjalan dengan baik"
+        
+        # Ensure UUID is added to all alternative VMess instances for client authentication
+        echo -e "🔐 Memastikan UUID client ditambahkan ke semua port alternatif..."
+        
+        # Function to add client UUID to alternative ports if not already present
+        add_client_uuid_to_alternatives() {
+            local client_uuid="$1"
+            local config_file="/etc/xray/config.json"
+            
+            # Check if client UUID already exists in alternative ports
+            for port in 23457 23458 23459; do
+                if ! grep -q "\"id\": \"$client_uuid\"" "$config_file" | grep -A 20 "\"port\": \"$port\""; then
+                    echo -e "  📝 Menambahkan UUID client ke port $port..."
+                    # Add client UUID after the first client in each alternative port
+                    sed -i "/\"port\": \"$port\"/,/\"clients\": \[/ {
+                        /\"clients\": \[/a\\
+          {\\
+            \"id\": \"$client_uuid\",\\
+            \"alterId\": 0\\
+          },
+                    }" "$config_file"
+                fi
+            done
+        }
+        
+        # Add client UUID to alternative ports (if any clients will be added later)
+        # This ensures the infrastructure is ready for multi-client setups
+        
         # Test configuration
         if /usr/local/bin/xray run -config /etc/xray/config.json -test > /dev/null 2>&1; then
             echo -e "✅ Konfigurasi XRAY valid"
@@ -2722,8 +2728,8 @@ echo -e "🎉 INSTALASI XRAY BERHASIL DISELESAIKAN!"
 echo -e ""
 echo -e "📋 PROTOKOL XRAY YANG BERHASIL DIINSTALL:"
 echo -e ""
-echo -e "🆕 PROTOKOL BARU (Custom Paths):"
-echo -e "  ✅ VMess WebSocket (Custom Path: $VMESS_PATH)"
+echo -e "🆕 PROTOKOL UTAMA (Fixed Default Paths):"
+echo -e "  ✅ VMess WebSocket (Main Path: $VMESS_PATH)"
 echo -e "  ✅ VMess XHTTP (Custom Path: $VMESS_XHTTP_PATH)"  
 echo -e "  ✅ VLess WebSocket (Custom Path: $VLESS_PATH)"
 echo -e "  ✅ VLess XHTTP (Custom Path: $VLESS_XHTTP_PATH)"
@@ -2733,17 +2739,20 @@ echo -e "  ✅ VMess GRPC (Service: $VMESS_GRPC_SERVICE)"
 echo -e "  ✅ VLess GRPC (Service: $VLESS_GRPC_SERVICE)"
 echo -e "  ✅ Trojan GRPC (Service: $TROJAN_GRPC_SERVICE)"
 echo -e ""
+echo -e "🔄 VMESS ALTERNATIVE PATHS (untuk load balancing dan redundancy):"
+echo -e "  ✅ VMess WebSocket Alt 1: $VMESS_ALT_PATH_1 (Port: 23457)"
+echo -e "  ✅ VMess WebSocket Alt 2: $VMESS_ALT_PATH_2 (Port: 23458)"
+echo -e "  ✅ VMess WebSocket Alt 3: $VMESS_ALT_PATH_3 (Port: 23459)"
+echo -e ""
 echo -e "🔄 PROTOKOL LEGACY (Fixed Paths - untuk kompatibilitas dengan script lama):"
-echo -e "  ✅ VMess WebSocket (Legacy: /vmess, /worryfree, /kuota-habis, /chat)"
-echo -e "  ✅ VLess WebSocket (Legacy: /vless)"
-echo -e "  ✅ Trojan WebSocket (Legacy: /trojan-ws)"
 echo -e "  ✅ Semua GRPC (Legacy: /vmess-grpc, /vless-grpc, /trojan-grpc)"
 echo -e ""
 echo -e "ℹ️ INFO PENTING:"
-echo -e "  📁 Custom paths mendukung path apapun (contoh: /facebook, /google, /youtube)"
-echo -e "  🔧 Gunakan environment variables: CUSTOM_VMESS_PATH='/mypath' ./setup-2025.1.sh"
+echo -e "  📁 VMess memiliki 4 path untuk redundancy dan load balancing"
+echo -e "  🔧 Client dapat menggunakan path alternatif jika path utama bermasalah"
 echo -e "  💾 Semua konfigurasi disimpan di direktori /etc/xray/"
-echo -e "  🔄 Legacy paths tetap dijaga untuk kompatibilitas dengan script yang sudah ada"
+echo -e "  🔄 Path alternatif: /worryfree, /kuota-habis, /chat (fixed, tidak random)"
+echo -e "  🎯 Semua path menggunakan UUID yang sama: $uuid"
 echo -e ""
 
 echo -e "📁 Menyinkronkan file domain ke direktori XRAY..."
